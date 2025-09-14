@@ -1,0 +1,15 @@
+version: '3.8' 
+
+services: 
+  postgres-poc: 
+    build: .
+    container_name: user-profile-poc-db
+    ports: 
+      - "5432:5432"
+    environment: 
+      - POSTGRES_USER=poc_user
+      - POSTGRES_PASSWORD=poc_password
+      - POSTGRES_DB=user_profile_db
+    volumes: 
+      - /opt/postgres-data-userprofilepoc:/var/lib/postgresql/data
+    restart: unless-stopped 
