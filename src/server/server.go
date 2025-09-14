@@ -13,24 +13,24 @@ import (
 
 // Server representa o servidor HTTP da API
 type Server struct {
-	logger        *slog.Logger
-	server        *http.Server
-	mux           *http.ServeMux
-	port          int
-	entityService *services.EntityService
+	logger       *slog.Logger
+	server       *http.Server
+	mux          *http.ServeMux
+	port         int
+	graphService *services.GraphService
 }
 
 // NewServer cria uma nova instância do servidor
 func NewServer(
 	logger *slog.Logger,
 	port int,
-	entityService *services.EntityService,
+	graphService *services.GraphService,
 ) *Server {
 	server := &Server{
-		mux:           http.NewServeMux(),
-		port:          port,
-		logger:        logger,
-		entityService: entityService,
+		mux:          http.NewServeMux(),
+		port:         port,
+		logger:       logger,
+		graphService: graphService,
 	}
 
 	server.server = &http.Server{

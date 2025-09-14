@@ -23,7 +23,7 @@ func (s *Server) GetEntityByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entityTree, err := s.entityService.GetEntityTreeByID(r.Context(), entityID)
+	entityTree, err := s.graphService.GetTreeByEntityID(r.Context(), entityID)
 	if err != nil {
 		if errors.Is(err, domain.ErrEntityNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
@@ -59,14 +59,14 @@ func (s *Server) GetEntityByProperty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entityTree, err := s.entityService.GetEntityByProperty(r.Context(), prop, value)
+	entityTree, err := s.graphService.GetTreeByEntityProperty(r.Context(), prop, value)
 	if err != nil {
 		if errors.Is(err, domain.ErrEntityNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
-		log.Printf("ERROR: Failed to get entity tree by property '%s - $s': %v\n", prop, value, err)
+		log.Printf("ERROR: Failed to get entity tree by property '%s - %s': %v\n", prop, value, err)
 
 		http.Error(w, domain.ErrUnavailableServer.Error(), http.StatusInternalServerError)
 		return

@@ -9,17 +9,17 @@ import (
 	"userprofilepoc/src/repositories"
 )
 
-type EntityService struct {
-	entityRepository *repositories.EntityRepository
+type GraphService struct {
+	graphQueryRepository *repositories.GraphQueryRepository
 }
 
-func NewEntityService(entityRepository *repositories.EntityRepository) *EntityService {
-	return &EntityService{
-		entityRepository: entityRepository,
+func NewGraphService(graphQueryRepository *repositories.GraphQueryRepository) *GraphService {
+	return &GraphService{
+		graphQueryRepository: graphQueryRepository,
 	}
 }
 
-func (es *EntityService) GetEntityTreeByID(ctx context.Context, EntityID int64) (*domain.NodeTree, error) {
+func (gs *GraphService) GetTreeByEntityID(ctx context.Context, EntityID int64) (*domain.NodeTree, error) {
 
 	depthLimit := 5
 	startTime := time.Date(2025, time.September, 1, 0, 0, 0, 0, time.UTC)
@@ -30,22 +30,22 @@ func (es *EntityService) GetEntityTreeByID(ctx context.Context, EntityID int64) 
 		Value:    EntityID,
 	}
 
-	graphNodes, temporalProps, err := es.entityRepository.QueryEntityData(ctx, condition, depthLimit, startTime)
+	graphNodes, temporalProps, err := gs.graphQueryRepository.QueryTree(ctx, condition, depthLimit, startTime)
 	if err != nil {
-		return nil, fmt.Errorf("EntityService.GetEntityTreeByID - failed to QueryEntityData from repository: %w", err)
+		return nil, fmt.Errorf("GraphService.GetTreeByEntityID - failed to QueryTree from repository: %w", err)
 	}
 
-	rootNode, err := es.buildNodeTree(graphNodes, temporalProps)
+	rootNode, err := gs.buildNodeTree(graphNodes, temporalProps)
 
 	// 4. Encontrar e retornar o nó raiz.
 	if err != nil {
-		return nil, fmt.Errorf("EntityService.GetEntityTreeByID - root node (%d) could not be found after assembly: %w", EntityID, err)
+		return nil, fmt.Errorf("GraphService.GetTreeByEntityID - root node (%d) could not be found after assembly: %w", EntityID, err)
 	}
 
 	return rootNode, nil
 }
 
-func (es *EntityService) GetEntityByProperty(ctx context.Context, propName string, propValue string) (*domain.NodeTree, error) {
+func (gs *GraphService) GetTreeByEntityProperty(ctx context.Context, propName string, propValue string) (*domain.NodeTree, error) {
 
 	depthLimit := 5
 	startTime := time.Date(2025, time.September, 1, 0, 0, 0, 0, time.UTC)
@@ -56,22 +56,22 @@ func (es *EntityService) GetEntityByProperty(ctx context.Context, propName strin
 		Value:    propValue,
 	}
 
-	graphNodes, temporalProps, err := es.entityRepository.QueryEntityData(ctx, condition, depthLimit, startTime)
+	graphNodes, temporalProps, err := gs.graphQueryRepository.QueryTree(ctx, condition, depthLimit, startTime)
 	if err != nil {
-		return nil, fmt.Errorf("EntityService.GetEntityByProperty - failed to QueryEntityData from repository: %w", err)
+		return nil, fmt.Errorf("GraphService.GetTreeByEntityProperty - failed to QueryTree from repository: %w", err)
 	}
 
 	// 2. Chama o repositório.
-	rootNode, err := es.buildNodeTree(graphNodes, temporalProps)
+	rootNode, err := gs.buildNodeTree(graphNodes, temporalProps)
 	if err != nil {
-		return nil, fmt.Errorf("EntityService.GetEntityByProperty - failed to build profile for document %s %s: %w", propName, propValue, err)
+		return nil, fmt.Errorf("GraphService.GetTreeByEntityProperty - failed to build profile for document %s %s: %w", propName, propValue, err)
 	}
 
 	return rootNode, nil
 }
 
 // Retorna o nó raiz da árvore montada ou um erro se a raiz não puder ser determinada.
-func (es *EntityService) buildNodeTree(graphNodes []domain.GraphNode, temporalProps []entities.TemporalProperty) (*domain.NodeTree, error) {
+func (es *GraphService) buildNodeTree(graphNodes []domain.GraphNode, temporalProps []entities.TemporalProperty) (*domain.NodeTree, error) {
 	if len(graphNodes) == 0 {
 		return nil, fmt.Errorf("graphNodes is empty; cannot build tree")
 	}

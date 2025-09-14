@@ -14,12 +14,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type EntityRepository struct {
+type GraphQueryRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewEntityRepository(pool *pgxpool.Pool) *EntityRepository {
-	return &EntityRepository{pool: pool}
+func NewGraphQueryRepository(pool *pgxpool.Pool) *GraphQueryRepository {
+	return &GraphQueryRepository{pool: pool}
 }
 
 type FindCondition struct {
@@ -28,7 +28,7 @@ type FindCondition struct {
 	Value    interface{} // O valor a ser usado como argumento na query.
 }
 
-func (r *EntityRepository) QueryEntityData(ctx context.Context, condition FindCondition, depthLimit int, startTime time.Time) ([]domain.GraphNode, []entities.TemporalProperty, error) {
+func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCondition, depthLimit int, startTime time.Time) ([]domain.GraphNode, []entities.TemporalProperty, error) {
 	baseGraphNodeQuery := `
 		WITH RECURSIVE entity_graph (entity_id, parent_id, relationship_type, depth) AS (
 			SELECT 
@@ -82,7 +82,7 @@ func (r *EntityRepository) QueryEntityData(ctx context.Context, condition FindCo
 	if condition.Operator == "@>" {
 		valueJson, err := postgres.BuildSearchJSON(condition.Field, condition.Value)
 		if err != nil {
-			return nil, nil, fmt.Errorf("EntityRepository.QueryEntityData - failed to build search JSON: %w", err)
+			return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - failed to build search JSON: %w", err)
 		}
 
 		queryField = "properties"
@@ -91,9 +91,9 @@ func (r *EntityRepository) QueryEntityData(ctx context.Context, condition FindCo
 
 	graphNodeQuery := fmt.Sprintf(baseGraphNodeQuery, queryField, condition.Operator)
 
-	grapthRows, err := r.pool.Query(ctx, graphNodeQuery, queryValue, depthLimit)
+	grapthRows, err := gqr.pool.Query(ctx, graphNodeQuery, queryValue, depthLimit)
 	if err != nil {
-		return nil, nil, fmt.Errorf("EntityRepository.QueryEntityData - graph query failed: %w", err)
+		return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - graph query failed: %w", err)
 	}
 
 	defer grapthRows.Close()
@@ -106,13 +106,13 @@ func (r *EntityRepository) QueryEntityData(ctx context.Context, condition FindCo
 		var parentsInfoRaw json.RawMessage
 
 		if err := grapthRows.Scan(&node.ID, &node.Type, &node.Reference, &node.Properties, &node.CreatedAt, &node.UpdatedAt, &parentsInfoRaw); err != nil {
-			return nil, nil, fmt.Errorf("EntityRepository.QueryEntityData - failed to scan entity data: %w", err)
+			return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - failed to scan entity data: %w", err)
 		}
 
 		// Desserializa o JSONB para a struct ParentsInfo
 		if len(parentsInfoRaw) > 0 && string(parentsInfoRaw) != "null" {
 			if err := json.Unmarshal(parentsInfoRaw, &node.ParentsInfo); err != nil {
-				log.Printf("EntityRepository.QueryEntityData - [WARN] repository could not unmarshal parents_info for entity %d: %v", node.ID, err)
+				log.Printf("GraphQueryRepository.QueryTree - [WARN] repository could not unmarshal parents_info for entity %d: %v", node.ID, err)
 			}
 		}
 
@@ -121,11 +121,11 @@ func (r *EntityRepository) QueryEntityData(ctx context.Context, condition FindCo
 	}
 
 	if err := grapthRows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("EntityRepository.QueryEntityData - error iterating graph rows: %w", err)
+		return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - error iterating graph rows: %w", err)
 	}
 
 	if len(allNodes) == 0 {
-		return nil, nil, fmt.Errorf("EntityRepository.QueryEntityData - entity not found: %w", domain.ErrEntityNotFound)
+		return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - entity not found: %w", domain.ErrEntityNotFound)
 	}
 
 	temporalPropertiesQuery := `
@@ -142,9 +142,9 @@ func (r *EntityRepository) QueryEntityData(ctx context.Context, condition FindCo
 		WHERE 
 			entity_id = ANY($1) AND start_ts >= $2;
 	`
-	temporalRows, err := r.pool.Query(ctx, temporalPropertiesQuery, entityIDs, startTime)
+	temporalRows, err := gqr.pool.Query(ctx, temporalPropertiesQuery, entityIDs, startTime)
 	if err != nil {
-		return nil, nil, fmt.Errorf("EntityRepository.QueryEntityData - temporal query failed: %w", err)
+		return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - temporal query failed: %w", err)
 	}
 
 	defer temporalRows.Close()
@@ -155,7 +155,7 @@ func (r *EntityRepository) QueryEntityData(ctx context.Context, condition FindCo
 		var pgRange pgtype.Range[pgtype.Timestamptz]
 
 		if err := temporalRows.Scan(&prop.EntityID, &prop.Key, &prop.Value, &pgRange, &prop.Granularity, &prop.StartTS, &prop.CreatedAt, &prop.UpdatedAt); err != nil {
-			return nil, nil, fmt.Errorf("EntityRepository.QueryEntityData - failed to scan temporal property: %w", err)
+			return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - failed to scan temporal property: %w", err)
 		}
 
 		if pgRange.Lower.Valid {

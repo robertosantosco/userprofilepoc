@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"userprofilepoc/src/domain/entities"
 )
@@ -10,6 +11,10 @@ var (
 
 	ErrUnavailableServer = errors.New("Oops, something unexpected happened. Please try again later.")
 )
+
+// ############################################################
+// ############# PROCESSO DE LEITURA DO GRAFO #################
+// ############################################################
 
 // GraphNode representa um nó completo do grafo, contendo os dados
 // da entidade e a informação estrutural de seus pais.
@@ -35,4 +40,28 @@ type NodeTree struct {
 type ProfileEdge struct {
 	Type   string
 	Entity *NodeTree
+}
+
+// ############################################################
+// ######## PROCESSO DE ESCRITA DAS ENTITIES/EDGES ############
+// ############################################################
+
+// SyncEntityDTO define a estrutura de uma entidade para sincronização.
+type SyncEntityDTO struct {
+	Reference  string
+	Type       string
+	Properties json.RawMessage
+}
+
+// SyncRelationshipDTO define a estrutura de um relacionamento para sincronização.
+type SyncRelationshipDTO struct {
+	SourceReference  string
+	TargetReference  string
+	RelationshipType string
+}
+
+// SyncGraphRequest é o DTO completo que o serviço usa para solicitar uma sincronização.
+type SyncGraphRequest struct {
+	Entities      []SyncEntityDTO
+	Relationships []SyncRelationshipDTO
 }

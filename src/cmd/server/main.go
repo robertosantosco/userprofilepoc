@@ -29,7 +29,7 @@ func main() {
 			newLogger,
 			newSQLClient,
 			newServer,
-			newEntityRepository,
+			newGraphQueryRepository,
 			newEntitiesService,
 		),
 
@@ -79,17 +79,17 @@ func newSQLClient() (*pgxpool.Pool, error) {
 	return postgres.NewPostgresClient(dbHost, dbPort, dbname, dbUser, dbPassword, maxConnections)
 }
 
-func newEntityRepository(pool *pgxpool.Pool) *repositories.EntityRepository {
-	return repositories.NewEntityRepository(pool)
+func newGraphQueryRepository(pool *pgxpool.Pool) *repositories.GraphQueryRepository {
+	return repositories.NewGraphQueryRepository(pool)
 }
 
-func newEntitiesService(entityRepo *repositories.EntityRepository) *services.EntityService {
-	return services.NewEntityService(entityRepo)
+func newEntitiesService(graphQueryRepository *repositories.GraphQueryRepository) *services.GraphService {
+	return services.NewGraphService(graphQueryRepository)
 }
 
 func newServer(
 	logger *slog.Logger,
-	entityService *services.EntityService,
+	graphService *services.GraphService,
 ) *server.Server {
 
 	port := 8888 // default value
@@ -99,7 +99,7 @@ func newServer(
 		}
 	}
 
-	server := server.NewServer(logger, port, entityService)
+	server := server.NewServer(logger, port, graphService)
 
 	return server
 }
