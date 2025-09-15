@@ -11,14 +11,20 @@ import (
 
 type GraphService struct {
 	graphQueryRepository *repositories.GraphQueryRepository
+	graphWriteRepository *repositories.GraphWriteRepository
 }
 
-func NewGraphService(graphQueryRepository *repositories.GraphQueryRepository) *GraphService {
+func NewGraphService(
+	graphQueryRepository *repositories.GraphQueryRepository,
+	graphWriteRepository *repositories.GraphWriteRepository,
+) *GraphService {
 	return &GraphService{
 		graphQueryRepository: graphQueryRepository,
+		graphWriteRepository: graphWriteRepository,
 	}
 }
 
+// obtem o nodeTree pelo ID da entidade raiz.
 func (gs *GraphService) GetTreeByEntityID(ctx context.Context, EntityID int64) (*domain.NodeTree, error) {
 
 	depthLimit := 5
@@ -45,6 +51,7 @@ func (gs *GraphService) GetTreeByEntityID(ctx context.Context, EntityID int64) (
 	return rootNode, nil
 }
 
+// obtem o nodeTree pela propriedade da entidade raiz.
 func (gs *GraphService) GetTreeByEntityProperty(ctx context.Context, propName string, propValue string) (*domain.NodeTree, error) {
 
 	depthLimit := 5
@@ -68,6 +75,15 @@ func (gs *GraphService) GetTreeByEntityProperty(ctx context.Context, propName st
 	}
 
 	return rootNode, nil
+}
+
+// atualiza entities e edges.
+func (s *GraphService) SyncGraph(ctx context.Context, request domain.SyncGraphRequest) error {
+	if len(request.Entities) == 0 && len(request.Relationships) == 0 {
+		return fmt.Errorf("sync request must contain at least one entity or relationship")
+	}
+
+	return s.graphWriteRepository.SyncGraph(ctx, request)
 }
 
 // Retorna o nó raiz da árvore montada ou um erro se a raiz não puder ser determinada.

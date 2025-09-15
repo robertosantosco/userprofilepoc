@@ -48,20 +48,20 @@ type ProfileEdge struct {
 
 // SyncEntityDTO define a estrutura de uma entidade para sincronização.
 type SyncEntityDTO struct {
-	Reference  string
-	Type       string
-	Properties json.RawMessage
+	Reference  string          `json:"reference"`
+	Type       string          `json:"type"`
+	Properties json.RawMessage `json:"properties"`
 }
 
 // SyncRelationshipDTO define a estrutura de um relacionamento para sincronização.
 type SyncRelationshipDTO struct {
-	SourceReference  string
-	TargetReference  string
-	RelationshipType string
+	SourceReference  string `json:"source_reference"`
+	TargetReference  string `json:"target_reference"`
+	RelationshipType string `json:"relationship_type"`
 }
 
 // SyncGraphRequest é o DTO completo que o serviço usa para solicitar uma sincronização.
 type SyncGraphRequest struct {
-	Entities      []SyncEntityDTO
-	Relationships []SyncRelationshipDTO
+	Entities      []SyncEntityDTO       `json:"entities"`
+	Relationships []SyncRelationshipDTO `json:"relationships"`
 }

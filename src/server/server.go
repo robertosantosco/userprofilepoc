@@ -41,8 +41,12 @@ func NewServer(
 		IdleTimeout:  120 * time.Second,
 	}
 
-	server.mux.HandleFunc("GET /v1/entities/{id}", server.GetEntityByID)
-	server.mux.HandleFunc("GET /v1/entities/by-properties/{prop}/value/{value}", server.GetEntityByProperty)
+	// Rotas de Leitura
+	server.mux.HandleFunc("GET /v1/graph/{id}", server.GetGraphByID)
+	server.mux.HandleFunc("GET /v1/graph/by-property/{prop}/value/{value}", server.GetGraphByProperty)
+
+	// Rotas de Escritas
+	server.mux.HandleFunc("POST /v1/graph/sync", server.SyncGraph)
 
 	return server
 }

@@ -10,7 +10,7 @@ import (
 	"userprofilepoc/src/domain"
 )
 
-func (s *Server) GetEntityByID(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GetGraphByID(w http.ResponseWriter, r *http.Request) {
 	entityIDStr := r.PathValue("id")
 	if entityIDStr == "" {
 		http.Error(w, "Entity ID is required", http.StatusBadRequest)
@@ -46,16 +46,16 @@ func (s *Server) GetEntityByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) GetEntityByProperty(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GetGraphByProperty(w http.ResponseWriter, r *http.Request) {
 	prop := r.PathValue("prop")
 	if prop == "" {
-		http.Error(w, "Query parameter 'prop' is required", http.StatusBadRequest)
+		http.Error(w, "prop is required", http.StatusBadRequest)
 		return
 	}
 
 	value := r.PathValue("value")
 	if value == "" {
-		http.Error(w, "Query parameter 'value' is required", http.StatusBadRequest)
+		http.Error(w, "value is required", http.StatusBadRequest)
 		return
 	}
 

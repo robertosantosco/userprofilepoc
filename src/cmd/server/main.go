@@ -30,6 +30,7 @@ func main() {
 			newSQLClient,
 			newServer,
 			newGraphQueryRepository,
+			newGraphWriteRepository,
 			newEntitiesService,
 		),
 
@@ -83,8 +84,15 @@ func newGraphQueryRepository(pool *pgxpool.Pool) *repositories.GraphQueryReposit
 	return repositories.NewGraphQueryRepository(pool)
 }
 
-func newEntitiesService(graphQueryRepository *repositories.GraphQueryRepository) *services.GraphService {
-	return services.NewGraphService(graphQueryRepository)
+func newGraphWriteRepository(pool *pgxpool.Pool) *repositories.GraphWriteRepository {
+	return repositories.NewGraphWriteRepository(pool)
+}
+
+func newEntitiesService(
+	graphQueryRepository *repositories.GraphQueryRepository,
+	graphWriteRepository *repositories.GraphWriteRepository,
+) *services.GraphService {
+	return services.NewGraphService(graphQueryRepository, graphWriteRepository)
 }
 
 func newServer(
