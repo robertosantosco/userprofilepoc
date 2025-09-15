@@ -98,9 +98,13 @@ SELECT public.create_parent(
 );
 
 -- Configure retention: 2 years for all data
-UPDATE public.part_config
-  SET retention = '2 years', infinite_time_partitions = TRUE
-WHERE parent_table = 'public.temporal_properties';
+UPDATE 
+  public.part_config
+SET 
+  retention = '2 years', 
+  infinite_time_partitions = TRUE
+WHERE 
+  parent_table = 'public.temporal_properties';
 
 -- 3) Initialize partitions
 SELECT public.run_maintenance(p_parent_table := 'public.temporal_properties');

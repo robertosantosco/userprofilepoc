@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"time"
 	"userprofilepoc/src/domain/entities"
 )
 
@@ -64,4 +65,23 @@ type SyncRelationshipDTO struct {
 type SyncGraphRequest struct {
 	Entities      []SyncEntityDTO       `json:"entities"`
 	Relationships []SyncRelationshipDTO `json:"relationships"`
+}
+
+// ############################################################
+// ##### PROCESSO DE ESCRITA DAS TEMPORAL PROPERTIES ##########
+// ############################################################
+
+// TemporalDataPointDTO representa um único ponto de dado temporal a ser ingerido.
+type TemporalDataPointDTO struct {
+	EntityReference string          `json:"entity_reference"`
+	EntityType      string          `json:"entity_type"`
+	Key             string          `json:"key"`
+	Value           json.RawMessage `json:"value"`
+	PeriodStart     time.Time       `json:"period_start"`
+	PeriodEnd       time.Time       `json:"period_end"`
+	Granularity     string          `json:"granularity"`
+}
+
+type SyncTemporalPropertyRequest struct {
+	DataPoints []TemporalDataPointDTO `json:"data_points"`
 }

@@ -32,6 +32,8 @@ func main() {
 			newGraphQueryRepository,
 			newGraphWriteRepository,
 			newEntitiesService,
+			newTemporalWriteRepository,
+			newTemporalDataService,
 		),
 
 		// Invocations
@@ -95,9 +97,18 @@ func newEntitiesService(
 	return services.NewGraphService(graphQueryRepository, graphWriteRepository)
 }
 
+func newTemporalWriteRepository(pool *pgxpool.Pool) *repositories.TemporalWriteRepository {
+	return repositories.NewTemporalWriteRepository(pool)
+}
+
+func newTemporalDataService(temporalWriteRepository *repositories.TemporalWriteRepository) *services.TemporalDataService {
+	return services.NewTemporalDataService(temporalWriteRepository)
+}
+
 func newServer(
 	logger *slog.Logger,
 	graphService *services.GraphService,
+	temporalDataService *services.TemporalDataService,
 ) *server.Server {
 
 	port := 8888 // default value
@@ -107,7 +118,7 @@ func newServer(
 		}
 	}
 
-	server := server.NewServer(logger, port, graphService)
+	server := server.NewServer(logger, port, graphService, temporalDataService)
 
 	return server
 }

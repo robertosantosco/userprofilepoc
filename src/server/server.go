@@ -13,11 +13,12 @@ import (
 
 // Server representa o servidor HTTP da API
 type Server struct {
-	logger       *slog.Logger
-	server       *http.Server
-	mux          *http.ServeMux
-	port         int
-	graphService *services.GraphService
+	logger              *slog.Logger
+	server              *http.Server
+	mux                 *http.ServeMux
+	port                int
+	graphService        *services.GraphService
+	temporalDataService *services.TemporalDataService
 }
 
 // NewServer cria uma nova instância do servidor
@@ -25,12 +26,14 @@ func NewServer(
 	logger *slog.Logger,
 	port int,
 	graphService *services.GraphService,
+	temporalDataService *services.TemporalDataService,
 ) *Server {
 	server := &Server{
-		mux:          http.NewServeMux(),
-		port:         port,
-		logger:       logger,
-		graphService: graphService,
+		mux:                 http.NewServeMux(),
+		port:                port,
+		logger:              logger,
+		graphService:        graphService,
+		temporalDataService: temporalDataService,
 	}
 
 	server.server = &http.Server{
@@ -47,6 +50,9 @@ func NewServer(
 
 	// Rotas de Escritas
 	server.mux.HandleFunc("POST /v1/graph/sync", server.SyncGraph)
+
+	//
+	server.mux.HandleFunc("POST /v1/temporal/ingest", server.IngestTemporalData)
 
 	return server
 }
