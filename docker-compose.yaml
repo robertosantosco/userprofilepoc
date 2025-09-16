@@ -13,3 +13,5 @@ services:
     volumes: 
       - /opt/postgres-data-userprofilepoc:/var/lib/postgresql/data
     restart: unless-stopped 
+    command: >
+      postgres -c shared_preload_libraries='pg_partman_bgw,pg_cron' -c cron.database_name=user_profile_db

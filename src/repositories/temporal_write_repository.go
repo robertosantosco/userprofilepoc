@@ -92,19 +92,46 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 					temp_datapoints td
 				JOIN 
 					entity_ids ei ON td.entity_reference = ei.reference
+			),
+
+			-- CTE 3: UPDATE das linhas existentes que se sobrepõem
+			updated_rows AS (
+				UPDATE 
+					temporal_properties tp
+				SET
+					value = tdu.value,
+					updated_at = NOW()
+				FROM 
+					temporal_data_to_upsert tdu
+				WHERE
+					tp.entity_id = tdu.entity_id
+					AND tp.key = tdu.key
+					AND tp.period && tdu.period  -- Operador de sobreposição
+				RETURNING 
+					tp.entity_id, 
+					tp.key, 
+					tp.period
 			)
-			-- Faz o "upsert" na tabela de propriedades temporais.
+			
+			-- INSERT apenas dos dados que NÃO foram atualizados
 			INSERT INTO 
 				temporal_properties (entity_id, key, value, period, granularity, start_ts)
 			SELECT 
-				entity_id, key, value, period, granularity, start_ts
+				tdu.entity_id, 
+				tdu.key, 
+				tdu.value, 
+				tdu.period, 
+				tdu.granularity, 
+				tdu.start_ts
 			FROM 
-				temporal_data_to_upsert
-			-- ON CONFLICT (entity_id, key, period)
-			-- WHERE (period && period) -- Esta condição é um pouco estranha, mas é como se diz "conflito de sobreposição"
-			-- DO UPDATE SET
-			-- 	value = excluded.value,
-			-- 	updated_at = NOW();
+				temporal_data_to_upsert tdu
+			LEFT JOIN 
+				updated_rows ur 
+				ON tdu.entity_id = ur.entity_id 
+				AND tdu.key = ur.key 
+				AND tdu.period && ur.period
+			WHERE 
+				ur.entity_id IS NULL;
 	`
 
 	if _, err := tx.Exec(ctx, query); err != nil {
