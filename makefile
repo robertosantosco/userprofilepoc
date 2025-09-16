@@ -5,4 +5,4 @@ run-server:
 	go run ./src/cmd/server/main.go
 
 run-datagen:
-	go run datagen_v2.go -clients=-1 -bulk-size=100 -consumers=8
+	go run datagen_v2.go -clients=-1 -bulk-size=1000 -consumers=20

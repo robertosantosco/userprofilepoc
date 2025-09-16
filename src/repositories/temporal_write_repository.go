@@ -30,10 +30,20 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 
 	// Prepara os dados para a tabela temporária.
 	rows := make([][]interface{}, len(syncTemporalPropertyRequest.DataPoints))
+	minStart := syncTemporalPropertyRequest.DataPoints[0].PeriodStart
+	maxEnd := syncTemporalPropertyRequest.DataPoints[0].PeriodEnd
 	for i, dp := range syncTemporalPropertyRequest.DataPoints {
 		rows[i] = []interface{}{
 			dp.EntityReference, dp.EntityType, dp.Key, dp.Value,
 			dp.PeriodStart, dp.PeriodEnd, dp.Granularity,
+		}
+
+		if dp.PeriodStart.Before(minStart) {
+			minStart = dp.PeriodStart
+		}
+
+		if dp.PeriodEnd.After(maxEnd) {
+			maxEnd = dp.PeriodEnd
 		}
 	}
 
@@ -62,7 +72,7 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 		return fmt.Errorf("failed to copy datapoints to temp table: %w", err)
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		WITH
 			-- CTE 1: Faz o "upsert" das entidades e retorna os IDs tanto
 			entity_ids AS (
@@ -106,6 +116,8 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 				WHERE
 					tp.entity_id = tdu.entity_id
 					AND tp.key = tdu.key
+					AND tp.start_ts >= '%s'
+            		AND tp.start_ts <= '%s'
 					AND tp.period && tdu.period  -- Operador de sobreposição
 				RETURNING 
 					tp.entity_id, 
@@ -132,7 +144,7 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 				AND tdu.period && ur.period
 			WHERE 
 				ur.entity_id IS NULL;
-	`
+	`, minStart.Format("2006-01-02"), maxEnd.Format("2006-01-02"))
 
 	if _, err := tx.Exec(ctx, query); err != nil {
 		return fmt.Errorf("failed to execute temporal upsert query: %w", err)

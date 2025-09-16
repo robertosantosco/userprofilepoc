@@ -19,10 +19,3 @@ RUN git clone https://github.com/pgpartman/pg_partman.git /tmp/pg_partman && \
     cd /tmp/pg_partman && \
     make install && \
     rm -rf /tmp/pg_partman
-
-# 5. Clone, compile e instale o pg_cron.
-RUN git clone https://github.com/citusdata/pg_cron.git /tmp/pg_cron && \
-    cd /tmp/pg_cron && \
-    make && \
-    make install && \
-    rm -rf /tmp/pg_cron
