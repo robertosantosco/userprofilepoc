@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"time"
 	"userprofilepoc/src/domain"
 
 	"github.com/jackc/pgx/v5"
@@ -30,20 +31,23 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 
 	// Prepara os dados para a tabela temporária.
 	rows := make([][]interface{}, len(syncTemporalPropertyRequest.DataPoints))
-	minStart := syncTemporalPropertyRequest.DataPoints[0].PeriodStart
-	maxEnd := syncTemporalPropertyRequest.DataPoints[0].PeriodEnd
+	minReferenceDate := syncTemporalPropertyRequest.DataPoints[0].ReferenceDate
+	maxReferenceDate := syncTemporalPropertyRequest.DataPoints[0].ReferenceDate
 	for i, dp := range syncTemporalPropertyRequest.DataPoints {
+
+		referenceMonth := time.Date(dp.ReferenceDate.Year(), dp.ReferenceDate.Month(), 1, 0, 0, 0, 0, dp.ReferenceDate.Location())
+
 		rows[i] = []interface{}{
 			dp.EntityReference, dp.EntityType, dp.Key, dp.Value,
-			dp.PeriodStart, dp.PeriodEnd, dp.Granularity,
+			dp.Granularity, dp.ReferenceDate, referenceMonth,
 		}
 
-		if dp.PeriodStart.Before(minStart) {
-			minStart = dp.PeriodStart
+		if dp.ReferenceDate.Before(minReferenceDate) {
+			minReferenceDate = dp.ReferenceDate
 		}
 
-		if dp.PeriodEnd.After(maxEnd) {
-			maxEnd = dp.PeriodEnd
+		if dp.ReferenceDate.After(maxReferenceDate) {
+			maxReferenceDate = dp.ReferenceDate
 		}
 	}
 
@@ -53,9 +57,9 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 		entity_type TEXT, 
 		key TEXT, 
 		value JSONB,
-		period_start TIMESTAMPTZ, 
-		period_end TIMESTAMPTZ, 
-		granularity TEXT
+		granularity TEXT,
+		reference_date TIMESTAMPTZ, 
+		reference_month DATE
 	) ON COMMIT DROP;`
 	if _, err := tx.Exec(ctx, tempTableQuery); err != nil {
 		return fmt.Errorf("failed to create temp datapoints table: %w", err)
@@ -65,22 +69,22 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 	_, err = tx.CopyFrom(
 		ctx,
 		pgx.Identifier{"temp_datapoints"},
-		[]string{"entity_reference", "entity_type", "key", "value", "period_start", "period_end", "granularity"},
+		[]string{"entity_reference", "entity_type", "key", "value", "granularity", "reference_date", "reference_month"},
 		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to copy datapoints to temp table: %w", err)
 	}
 
-	query := fmt.Sprintf(`
+	query := `
 		WITH
 			-- CTE 1: Faz o "upsert" das entidades e retorna os IDs tanto
 			entity_ids AS (
-				INSERT INTO 
+				INSERT INTO
 					entities (type, reference)
-				SELECT DISTINCT 
+				SELECT DISTINCT
 					entity_type, entity_reference
-				FROM 
+				FROM
 					temp_datapoints
 				ON CONFLICT (type, reference)
 				-- "Truque": fazemos um update que não altera nada (Ñ gera escrita), apenas para ter acesso aos dados
@@ -95,56 +99,48 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 					ei.id AS entity_id,
 					td.key,
 					td.value,
-					tstzrange(td.period_start, td.period_end, '[]') AS period,
 					td.granularity,
-					td.period_start AS start_ts
-				FROM 
+					td.reference_date,
+					td.reference_month,
+					CASE 
+						WHEN td.granularity = 'instant' THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_date, 'YYYY-MM-DD"T"HH24:MI:SS.MS')
+						WHEN td.granularity = 'day'     THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_date, 'YYYY-MM-DD')
+						WHEN td.granularity = 'week'    THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_date, 'IYYY-"W"IW')
+						WHEN td.granularity = 'month'   THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_month, 'YYYY-MM')
+						WHEN td.granularity = 'quarter' THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_date, 'YYYY') || '-Q' || ((extract(month from td.reference_date)-1)/3 + 1)
+						WHEN td.granularity = 'year'    THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_date, 'YYYY')
+						END AS idempotency_key
+				FROM
 					temp_datapoints td
-				JOIN 
+				JOIN
 					entity_ids ei ON td.entity_reference = ei.reference
-			),
-
-			-- CTE 3: UPDATE das linhas existentes que se sobrepõem
-			updated_rows AS (
-				UPDATE 
-					temporal_properties tp
-				SET
-					value = tdu.value,
-					updated_at = NOW()
-				FROM 
-					temporal_data_to_upsert tdu
-				WHERE
-					tp.entity_id = tdu.entity_id
-					AND tp.key = tdu.key
-					AND tp.start_ts >= '%s'
-            		AND tp.start_ts <= '%s'
-					AND tp.period && tdu.period  -- Operador de sobreposição
-				RETURNING 
-					tp.entity_id, 
-					tp.key, 
-					tp.period
 			)
-			
-			-- INSERT apenas dos dados que NÃO foram atualizados
-			INSERT INTO 
-				temporal_properties (entity_id, key, value, period, granularity, start_ts)
-			SELECT 
-				tdu.entity_id, 
-				tdu.key, 
-				tdu.value, 
-				tdu.period, 
-				tdu.granularity, 
-				tdu.start_ts
-			FROM 
-				temporal_data_to_upsert tdu
-			LEFT JOIN 
-				updated_rows ur 
-				ON tdu.entity_id = ur.entity_id 
-				AND tdu.key = ur.key 
-				AND tdu.period && ur.period
-			WHERE 
-				ur.entity_id IS NULL;
-	`, minStart.Format("2006-01-02"), maxEnd.Format("2006-01-02"))
+
+			INSERT INTO temporal_properties (
+				entity_id,
+				key,
+				value,
+				granularity,
+				reference_date,
+				reference_month,
+				idempotency_key
+			)
+			SELECT
+				entity_id,
+				key,
+				value,
+				granularity,
+				reference_date,
+				reference_month,
+				idempotency_key
+			FROM
+				temporal_data_to_upsert
+			ON CONFLICT ON CONSTRAINT 
+				tp_uniq_idempotency_key_reference_month
+			DO UPDATE SET
+				value = excluded.value,
+				updated_at = NOW();
+	`
 
 	if _, err := tx.Exec(ctx, query); err != nil {
 		return fmt.Errorf("failed to execute temporal upsert query: %w", err)

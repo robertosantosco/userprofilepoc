@@ -77,9 +77,8 @@ type TemporalDataPointDTO struct {
 	EntityType      string          `json:"entity_type"`
 	Key             string          `json:"key"`
 	Value           json.RawMessage `json:"value"`
-	PeriodStart     time.Time       `json:"period_start"`
-	PeriodEnd       time.Time       `json:"period_end"`
 	Granularity     string          `json:"granularity"`
+	ReferenceDate   time.Time       `json:"reference_date"`
 }
 
 type SyncTemporalPropertyRequest struct {

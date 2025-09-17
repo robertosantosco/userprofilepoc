@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 	"userprofilepoc/src/domain"
+	"userprofilepoc/src/domain/entities"
 )
 
 type NodeTreeDTO struct {
@@ -24,17 +25,11 @@ type NodeTreeEdgeDTO struct {
 }
 
 type TemporalItemDTO struct {
-	Value       json.RawMessage `json:"value"`
-	Period      PeriodDTO       `json:"period"`
-	Granularity string          `json:"granularity"`
-	StartTS     time.Time       `json:"start_ts"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-}
-
-type PeriodDTO struct {
-	Start *time.Time `json:"start"`
-	End   *time.Time `json:"end"`
+	Value         json.RawMessage      `json:"value"`
+	Granularity   entities.Granularity `json:"granularity"`
+	ReferenceDate time.Time            `json:"reference_date"`
+	CreatedAt     time.Time            `json:"created_at"`
+	UpdatedAt     time.Time            `json:"updated_at"`
 }
 
 // // MarshalJSON customizado para "achatar" o campo Properties.
@@ -76,15 +71,11 @@ func MapDomainToResponse(node *domain.NodeTree) *NodeTreeDTO {
 
 		for _, prop := range node.TemporalData {
 			item := &TemporalItemDTO{
-				Value: prop.Value,
-				Period: PeriodDTO{
-					Start: &prop.PeriodStart,
-					End:   prop.PeriodEnd,
-				},
-				Granularity: prop.Granularity,
-				StartTS:     prop.StartTS,
-				CreatedAt:   prop.CreatedAt,
-				UpdatedAt:   prop.UpdatedAt,
+				Value:         prop.Value,
+				Granularity:   prop.Granularity,
+				ReferenceDate: prop.ReferenceDate,
+				CreatedAt:     prop.CreatedAt,
+				UpdatedAt:     prop.UpdatedAt,
 			}
 
 			aggregatedTemporalData[prop.Key] = append(aggregatedTemporalData[prop.Key], item)

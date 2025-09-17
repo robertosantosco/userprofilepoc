@@ -25,12 +25,13 @@ import (
 
 // SeederTemporalProperty usa string para o período, pois será processado pelo COPY TEXT.
 type SeederTemporalProperty struct {
-	EntityRef   string
-	Key         string
-	Value       json.RawMessage
-	Period      string
-	Granularity string
-	StartTS     time.Time
+	EntityRef      string
+	Key            string
+	Value          json.RawMessage
+	Granularity    string
+	ReferenceDate  time.Time
+	ReferenceMonth time.Time
+	IdempotencyKey string
 }
 
 type DataBundle struct {
@@ -260,7 +261,15 @@ func bulkInsert(ctx context.Context, db *pgxpool.Pool, bundles []DataBundle) err
 	for _, b := range bundles {
 		for _, p := range b.TemporalProps {
 			if eid, ok := entityMap[p.EntityRef]; ok {
-				temporalRows = append(temporalRows, []any{eid, p.Key, p.Value, p.Period, p.Granularity, p.StartTS})
+				temporalRows = append(temporalRows, []any{
+					eid,
+					p.Key,
+					p.Value,
+					p.Granularity,
+					p.ReferenceDate,
+					p.ReferenceMonth,
+					makeIdempotencyKey(eid, p.Key, p.Granularity, &p.ReferenceDate, &p.ReferenceMonth),
+				})
 			}
 		}
 	}
@@ -279,27 +288,29 @@ func copyTemporalTEXT(ctx context.Context, tx pgx.Tx, rows [][]any) error {
 	for _, r := range rows {
 		eid := fmt.Sprintf("%v", r[0])
 		key := toString(r[1])
-		val := copyEscape(string(r[2].(json.RawMessage)))
-		if !strings.HasPrefix(val, "{") {
-			val = fmt.Sprintf("%s", val)
+		val := string(r[2].(json.RawMessage))
+		gran := toString(r[3])
+		refDate := ""
+		if r[4] != nil {
+			refDate = r[4].(time.Time).Format("2006-01-02")
 		}
+		refMonth := ""
+		if r[5] != nil {
+			refMonth = r[5].(time.Time).Format("2006-01-02")
+		}
+		idem := toString(r[6])
 
-		per := toString(r[3])
-		gra := toString(r[4])
-		ts := "1970-01-01 00:00:00"
-		if t, ok := r[5].(time.Time); ok {
-			ts = t.UTC().Format("2006-01-02 15:04:05-07")
-		}
-		sb.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\n",
+		sb.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			copyEscape(eid),
 			copyEscape(key),
-			val, // JSON não precisa de escape
-			copyEscape(per),
-			copyEscape(gra),
-			copyEscape(ts)))
+			val,
+			copyEscape(gran),
+			copyEscape(refDate),
+			copyEscape(refMonth),
+			copyEscape(idem)))
 	}
 
-	sql := `COPY temporal_properties (entity_id, key, value, period, granularity, start_ts) FROM STDIN WITH (FORMAT text)`
+	sql := `COPY temporal_properties (entity_id, key, value, granularity, reference_date, reference_month, idempotency_key) FROM STDIN WITH (FORMAT text)`
 	_, err := tx.Conn().PgConn().CopyFrom(ctx, strings.NewReader(sb.String()), sql)
 	return err
 }
@@ -415,12 +426,11 @@ func generateFakeUserData(org entities.Entity, monthsToGenerate int, monthsPerce
 		baseTPV := affProps["monthly_volume"].(float64)
 
 		for i := monthsToGenerate - 1; i >= monthsToGenerate-monthsToCreate; i-- {
-			startOfMonth := time.Date(now.Year(), now.Month()-time.Month(i), 1, 0, 0, 0, 0, time.UTC)
-			endOfMonth := startOfMonth.AddDate(0, 1, 0)
+			referenceMonth := time.Date(now.Year(), now.Month()-time.Month(i), 1, 0, 0, 0, 0, time.UTC)
 
 			// Fatores de crescimento e sazonalidade
 			timeFactor := 1.0 - (float64(i)/float64(monthsToGenerate))*0.3 // Crescimento de 30% no período
-			seasonalFactor := 1.0 + 0.2*math.Sin(float64(startOfMonth.Month())*math.Pi/6)
+			seasonalFactor := 1.0 + 0.2*math.Sin(float64(referenceMonth.Month())*math.Pi/6)
 			monthTPV := baseTPV * timeFactor * seasonalFactor * (0.85 + rand.Float64()*0.3)
 
 			// Evolução do PIX
@@ -430,28 +440,57 @@ func generateFakeUserData(org entities.Entity, monthsToGenerate int, monthsPerce
 			tpvItems := generateTPVItems(monthTPV, pixWeight)
 			tpvValueBytes, _ := json.Marshal(map[string]interface{}{"items": tpvItems})
 
-			period := fmt.Sprintf("[%s,%s)", startOfMonth.Format("2006-01-02 15:04:05-07"), endOfMonth.Format("2006-01-02 15:04:05-07"))
+			// Definir campos corretos
+			daysInMonth := time.Date(referenceMonth.Year(), referenceMonth.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+			randomDay := rand.Intn(daysInMonth) + 1
+			referenceDate := time.Date(referenceMonth.Year(), referenceMonth.Month(), randomDay, rand.Intn(24), rand.Intn(60), rand.Intn(60), 0, time.UTC)
+			idempotency := ""
+
 			temporalProps = append(temporalProps, SeederTemporalProperty{
-				EntityRef:   aff.Reference,
-				Key:         "tpv",
-				Value:       tpvValueBytes,
-				Period:      period,
-				Granularity: "month",
-				StartTS:     startOfMonth,
+				EntityRef:      aff.Reference,
+				Key:            "tpv",
+				Value:          tpvValueBytes,
+				Granularity:    "month",
+				ReferenceMonth: referenceMonth,
+				ReferenceDate:  referenceDate,
+				IdempotencyKey: idempotency,
 			})
 		}
 	}
 
 	// Propriedades da Organização
-	openPeriod := fmt.Sprintf("[%s,)", now.Format("2006-01-02 15:04:05-07"))
 	balanceValue, _ := json.Marshal(map[string]interface{}{"available": rand.Intn(500000), "currency": "BRL"})
 	creditLineValue, _ := json.Marshal(map[string]interface{}{"total_limit": rand.Intn(1000000), "available_limit": rand.Intn(500000)})
 	kycStatusValue, _ := json.Marshal(map[string]interface{}{"approved": true, "verification_level": "complete", "last_updated": now.AddDate(0, -rand.Intn(6), -rand.Intn(28)).Format(time.RFC3339)})
 
 	temporalProps = append(temporalProps,
-		SeederTemporalProperty{EntityRef: org.Reference, Key: "account_balance", Value: balanceValue, Period: openPeriod, Granularity: "instant", StartTS: now},
-		SeederTemporalProperty{EntityRef: org.Reference, Key: "credit_line", Value: creditLineValue, Period: openPeriod, Granularity: "instant", StartTS: now},
-		SeederTemporalProperty{EntityRef: user.Reference, Key: "kyc_status", Value: kycStatusValue, Period: openPeriod, Granularity: "instant", StartTS: now},
+		SeederTemporalProperty{
+			EntityRef:      org.Reference,
+			Key:            "account_balance",
+			Value:          balanceValue,
+			Granularity:    "instant",
+			ReferenceDate:  now,
+			ReferenceMonth: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC),
+			IdempotencyKey: "", // será gerado depois
+		},
+		SeederTemporalProperty{
+			EntityRef:      org.Reference,
+			Key:            "credit_line",
+			Value:          creditLineValue,
+			Granularity:    "instant",
+			ReferenceDate:  now,
+			ReferenceMonth: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC),
+			IdempotencyKey: "",
+		},
+		SeederTemporalProperty{
+			EntityRef:      user.Reference,
+			Key:            "kyc_status",
+			Value:          kycStatusValue,
+			Granularity:    "instant",
+			ReferenceDate:  now,
+			ReferenceMonth: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC),
+			IdempotencyKey: "",
+		},
 	)
 
 	return user, affiliations, posDevices, temporalProps
@@ -530,4 +569,24 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func makeIdempotencyKey(entityID int64, key, granularity string, refDate, refMonth *time.Time) string {
+	switch granularity {
+	case "instant":
+		return fmt.Sprintf("%d:%s:%s:%s", entityID, key, granularity, refDate.UTC().Format("2006-01-02T15:04:05.000"))
+	case "day":
+		return fmt.Sprintf("%d:%s:%s:%s", entityID, key, granularity, refDate.UTC().Format("2006-01-02"))
+	case "week":
+		year, week := refDate.UTC().ISOWeek()
+		return fmt.Sprintf("%d:%s:%s:%d-W%d", entityID, key, granularity, year, week)
+	case "month":
+		return fmt.Sprintf("%d:%s:%s:%s", entityID, key, granularity, refMonth.UTC().Format("2006-01"))
+	case "quarter":
+		q := (int(refDate.Month())-1)/3 + 1
+		return fmt.Sprintf("%d:%s:%s:%d-Q%d", entityID, key, granularity, refDate.Year(), q)
+	case "year":
+		return fmt.Sprintf("%d:%s:%s:%d", entityID, key, granularity, refDate.Year())
+	}
+	return ""
 }

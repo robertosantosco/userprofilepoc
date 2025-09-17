@@ -55,18 +55,19 @@ CREATE INDEX IF NOT EXISTS idx_edges_metadata           ON edges USING GIN(metad
 
 -- Tabela PAI: Armazena atributos que mudam com o tempo.
 CREATE TABLE IF NOT EXISTS temporal_properties (
-  entity_id    BIGINT NOT NULL REFERENCES entities(id),
-  key          text NOT NULL,
-  value        jsonb NOT NULL,
-  granularity  text NOT NULL CHECK (granularity IN ('instant', 'day', 'week', 'month', 'quarter', 'year')),
-  reference_date   timestamptz NOT NULL,
-  reference_month  date  NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  updated_at   timestamptz NOT NULL DEFAULT now(),
+  entity_id         BIGINT NOT NULL REFERENCES entities(id),
+  key               text NOT NULL,
+  value             jsonb NOT NULL,
+  idempotency_key   text NOT NULL,
+  granularity       text NOT NULL CHECK (granularity IN ('instant', 'day', 'week', 'month', 'quarter', 'year')),
+  reference_date    timestamptz NOT NULL,
+  reference_month   date  NOT NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
   
   -- Constraint básica para garantir que o reference_month seja o primeiro dia do mês.
   CONSTRAINT tp_reference_month_is_first_day CHECK (EXTRACT(DAY FROM reference_month) = 1),
-  CONSTRAINT uq_entity_key_per_month UNIQUE (entity_id, key, reference_month)
+  CONSTRAINT tp_uniq_idempotency_key_reference_month UNIQUE (idempotency_key, reference_month)
 ) PARTITION BY RANGE (reference_month);
 
 -- adicionado indexes na tabela pai

@@ -10,7 +10,6 @@ import (
 	"userprofilepoc/src/domain/entities"
 	"userprofilepoc/src/infra/postgres"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,7 +27,7 @@ type FindCondition struct {
 	Value    interface{} // O valor a ser usado como argumento na query.
 }
 
-func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCondition, depthLimit int, startTime time.Time) ([]domain.GraphNode, []entities.TemporalProperty, error) {
+func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCondition, depthLimit int, referenceMonth time.Time) ([]domain.GraphNode, []entities.TemporalProperty, error) {
 	baseGraphNodeQuery := `
 		WITH RECURSIVE entity_graph (entity_id, parent_id, relationship_type, depth) AS (
 			SELECT 
@@ -131,18 +130,19 @@ func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCo
 	temporalPropertiesQuery := `
 		SELECT 
 			entity_id, 
-			key, value, 
-			period, 
+			key, 
+			value, 
+			idempotency_key, 
 			granularity, 
-			start_ts, 
+			reference_date, 
 			created_at, 
 			updated_at
 		FROM 
 			temporal_properties
 		WHERE 
-			entity_id = ANY($1) AND start_ts >= $2;
+			entity_id = ANY($1) AND reference_month >= $2;
 	`
-	temporalRows, err := gqr.pool.Query(ctx, temporalPropertiesQuery, entityIDs, startTime)
+	temporalRows, err := gqr.pool.Query(ctx, temporalPropertiesQuery, entityIDs, referenceMonth.Format("2006-01-02"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - temporal query failed: %w", err)
 	}
@@ -152,20 +152,10 @@ func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCo
 	var temporalProps []entities.TemporalProperty
 	for temporalRows.Next() {
 		var prop entities.TemporalProperty
-		var pgRange pgtype.Range[pgtype.Timestamptz]
 
-		if err := temporalRows.Scan(&prop.EntityID, &prop.Key, &prop.Value, &pgRange, &prop.Granularity, &prop.StartTS, &prop.CreatedAt, &prop.UpdatedAt); err != nil {
+		if err := temporalRows.Scan(&prop.EntityID, &prop.Key, &prop.Value, &prop.IdempotencyKey, &prop.Granularity, &prop.ReferenceDate, &prop.CreatedAt, &prop.UpdatedAt); err != nil {
 			return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - failed to scan temporal property: %w", err)
 		}
-
-		if pgRange.Lower.Valid {
-			prop.PeriodStart = pgRange.Lower.Time
-		}
-		if pgRange.Upper.Valid {
-			endDate := pgRange.Upper.Time
-			prop.PeriodEnd = &endDate
-		}
-
 		temporalProps = append(temporalProps, prop)
 	}
 

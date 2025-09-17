@@ -16,9 +16,6 @@ func (s *Server) SyncGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bytes, _ := json.Marshal(request)
-	log.Printf("INFO: Received sync graph request: %s", string(bytes))
-
 	err = s.graphService.SyncGraph(r.Context(), request)
 	if err != nil {
 		log.Printf("ERROR: Failed to sync graph: %v", err)
