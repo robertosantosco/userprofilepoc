@@ -25,10 +25,9 @@ CREATE TABLE IF NOT EXISTS entities (
   CONSTRAINT uq_entities_ref_type_pair UNIQUE (type, reference)
 );
 
--- Index for convenient reference lookups
-CREATE INDEX IF NOT EXISTS idx_entities_reference ON entities(reference);
 -- Índice GIN para permitir buscas eficientes dentro do JSONB de propriedades.
-CREATE INDEX IF NOT EXISTS idx_entities_properties_gin ON entities USING GIN(properties);
+CREATE INDEX idx_entities_properties_path_ops ON entities USING GIN (properties jsonb_path_ops);
+CREATE INDEX idx_entities_reference_lookup ON entities (reference) INCLUDE (id, type);
 
 -- Tabela de "Arestas" do grafo. Define os relacionamentos.
 CREATE TABLE IF NOT EXISTS edges (
@@ -45,10 +44,8 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 
 -- Índices para otimizar a navegação no grafo.
-CREATE INDEX IF NOT EXISTS idx_edges_left_id            ON edges(left_entity_id);
-CREATE INDEX IF NOT EXISTS idx_edges_right_id           ON edges(right_entity_id);
-CREATE INDEX IF NOT EXISTS idx_edges_relationship       ON edges(relationship_type);
-CREATE INDEX IF NOT EXISTS idx_edges_metadata           ON edges USING GIN(metadata);
+CREATE INDEX idx_edges_left_relationship_right ON edges (left_entity_id, relationship_type) INCLUDE (right_entity_id);
+CREATE INDEX IF NOT EXISTS idx_edges_metadata  ON edges USING GIN(metadata);
 
 -- 3) TABELA TEMPORAL PARTICIONADA
 -- ---------------------------------------------------------------------
@@ -72,6 +69,7 @@ CREATE TABLE IF NOT EXISTS temporal_properties (
 
 -- adicionado indexes na tabela pai
 CREATE INDEX IF NOT EXISTS tp_value_gin ON temporal_properties USING GIN (value);
+CREATE INDEX idx_temporal_entity_date_key ON temporal_properties (entity_id, reference_date DESC, key) INCLUDE (value, idempotency_key, granularity, created_at, updated_at);
 
 -- Tabela TEMPLATE: Serve como modelo para as novas partições.
 CREATE TABLE IF NOT EXISTS temporal_properties_template (LIKE temporal_properties INCLUDING ALL);

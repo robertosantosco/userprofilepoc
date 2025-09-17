@@ -27,7 +27,23 @@ func NewPostgresClient(host string, port string, dbname string, username string,
 
 	config.MaxConns = int32(maxConnections) //nolint:all
 	config.MinConns = 1
+
+	// Idle timeout - economiza recursos
 	config.MaxConnIdleTime = 5 * time.Minute
+
+	// Lifetime das conexões - evita problemas de timeout do PostgreSQL
+	config.MaxConnLifetime = 30 * time.Minute
+
+	// Health check interval
+	config.HealthCheckPeriod = 1 * time.Minute
+
+	// Configurações de performance do driver
+	config.ConnConfig.RuntimeParams = map[string]string{
+		"timezone":                            "UTC", // Define o fuso horário para UTC
+		"statement_timeout":                   "30s", // Tempo máximo para execução de uma query
+		"lock_timeout":                        "10s", // Tempo máximo para aguardar um lock
+		"idle_in_transaction_session_timeout": "60s", // Tempo máximo que uma transação pode ficar ociosa
+	}
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
@@ -94,7 +110,7 @@ func IsNoRows(err error) bool {
 }
 
 // Ela constrói um payload JSON para ser usado com o operador @> do PostgreSQL.
-// Gera algo como {"document": {"value": "123.456.789-00"}}'
+// Gera algo como {"document": {"value": "123.456.789-00"}}
 // Essa estrutura é important para usarmos o index GIN em consultas JSONB.
 func BuildSearchJSON(path string, value interface{}) (string, error) {
 	keys := strings.Split(path, ".")

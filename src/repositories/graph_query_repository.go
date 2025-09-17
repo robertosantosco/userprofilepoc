@@ -57,7 +57,9 @@ func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCo
 		entities_relation AS (
 			SELECT
 				entity_id,
-				JSONB_AGG(DISTINCT jsonb_build_object('parent_id', parent_id, 'type', relationship_type)) FILTER (WHERE parent_id IS NOT NULL) AS parents_info
+				JSONB_AGG(
+					DISTINCT jsonb_build_object('parent_id', parent_id, 'type', relationship_type)
+				) FILTER (WHERE parent_id IS NOT NULL) AS parents_info
 			FROM 
 				entity_graph
 			GROUP 
@@ -140,7 +142,13 @@ func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCo
 		FROM 
 			temporal_properties
 		WHERE 
-			entity_id = ANY($1) AND reference_month >= $2;
+			entity_id = ANY($1) 
+			AND reference_month >= $2
+			AND reference_month <= date_trunc('month', now()) -- evita olhar partições futuras
+		ORDER BY 
+			entity_id, key, reference_date DESC
+		LIMIT
+			1000; -- Limite para evitar consultas muito grandes
 	`
 	temporalRows, err := gqr.pool.Query(ctx, temporalPropertiesQuery, entityIDs, referenceMonth.Format("2006-01-02"))
 	if err != nil {
