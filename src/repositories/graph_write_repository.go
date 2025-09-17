@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"log"
 	"userprofilepoc/src/domain"
 
 	"github.com/jackc/pgx/v5"
@@ -10,11 +11,12 @@ import (
 )
 
 type GraphWriteRepository struct {
-	pool *pgxpool.Pool
+	pool                  *pgxpool.Pool
+	cachedGraphRepository *CachedGraphRepository
 }
 
-func NewGraphWriteRepository(pool *pgxpool.Pool) *GraphWriteRepository {
-	return &GraphWriteRepository{pool: pool}
+func NewGraphWriteRepository(pool *pgxpool.Pool, cachedGraphRepository *CachedGraphRepository) *GraphWriteRepository {
+	return &GraphWriteRepository{pool: pool, cachedGraphRepository: cachedGraphRepository}
 }
 
 func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.SyncGraphRequest) error {
@@ -108,21 +110,42 @@ func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.Syn
 				entity_ids tgt_id ON tsd.target_reference = tgt_id.reference
 			WHERE 
 				tsd.relationship_type IS NOT NULL
+		),
+
+		inserted_edges AS (
+			INSERT INTO 
+				edges (left_entity_id, right_entity_id, relationship_type)
+			SELECT 
+				left_entity_id, right_entity_id, relationship_type 
+			FROM 
+				edges_to_create
+			ON CONFLICT 
+				(left_entity_id, right_entity_id, relationship_type) DO NOTHING
 		)
-		-- Query Final: Insere as arestas.
-		INSERT INTO 
-			edges (left_entity_id, right_entity_id, relationship_type)
-		SELECT 
-			left_entity_id, right_entity_id, relationship_type 
-		FROM 
-			edges_to_create
-		ON CONFLICT 
-			(left_entity_id, right_entity_id, relationship_type) DO NOTHING;
+		
+		SELECT DISTINCT id FROM entity_ids;
 	`
 
-	if _, err := tx.Exec(ctx, query); err != nil {
+	rowss, err := tx.Query(ctx, query)
+	if err != nil {
 		return fmt.Errorf("failed to execute unified sync mega-query: %w", err)
 	}
+
+	var affectedIDs []int64
+	for rowss.Next() {
+		var id int64
+		if err := rowss.Scan(&id); err != nil {
+			return fmt.Errorf("failed to scan entity ID: %w", err)
+		}
+		affectedIDs = append(affectedIDs, id)
+	}
+
+	// Invalidar cache em background
+	go func() {
+		if invalidateErr := r.cachedGraphRepository.InvalidateByEntityIDs(context.Background(), affectedIDs); invalidateErr != nil {
+			log.Printf("Failed to invalidate cache: %v", invalidateErr)
+		}
+	}()
 
 	return tx.Commit(ctx)
 }

@@ -13,7 +13,7 @@ import (
 	"userprofilepoc/src/infra/redis"
 )
 
-type CachedGraphQueryRepository struct {
+type CachedGraphRepository struct {
 	graphQueryRepository *GraphQueryRepository
 	redisClient          *redis.RedisClient
 }
@@ -23,17 +23,17 @@ type CacheableResult struct {
 	TemporalProps []entities.TemporalProperty `json:"temporal_props"`
 }
 
-func NewCachedGraphQueryRepository(
+func NewCachedGraphRepository(
 	graphQueryRepository *GraphQueryRepository,
 	redisClient *redis.RedisClient,
-) *CachedGraphQueryRepository {
-	return &CachedGraphQueryRepository{
+) *CachedGraphRepository {
+	return &CachedGraphRepository{
 		graphQueryRepository: graphQueryRepository,
 		redisClient:          redisClient,
 	}
 }
 
-func (r *CachedGraphQueryRepository) QueryTree(
+func (r *CachedGraphRepository) QueryTree(
 	ctx context.Context,
 	condition FindCondition,
 	depthLimit int,
@@ -70,7 +70,7 @@ func (r *CachedGraphQueryRepository) QueryTree(
 	return graphNodes, temporalProps, nil
 }
 
-func (r *CachedGraphQueryRepository) generateCacheKey(
+func (r *CachedGraphRepository) generateCacheKey(
 	condition FindCondition,
 	depthLimit int,
 	referenceMonth time.Time,
@@ -89,7 +89,7 @@ func (r *CachedGraphQueryRepository) generateCacheKey(
 	return fmt.Sprintf("graph:tree:%x", hash)
 }
 
-func (r *CachedGraphQueryRepository) getFromCache(ctx context.Context, cacheKey string) (*CacheableResult, bool, error) {
+func (r *CachedGraphRepository) getFromCache(ctx context.Context, cacheKey string) (*CacheableResult, bool, error) {
 
 	cachedJSON, found, err := r.redisClient.GetKey(ctx, cacheKey)
 	if !found || err != nil {
@@ -104,7 +104,7 @@ func (r *CachedGraphQueryRepository) getFromCache(ctx context.Context, cacheKey 
 	return &result, true, nil
 }
 
-func (r *CachedGraphQueryRepository) setInCache(
+func (r *CachedGraphRepository) setInCache(
 	ctx context.Context,
 	cacheKey string,
 	graphNodes []domain.GraphNode,
@@ -133,4 +133,59 @@ func (r *CachedGraphQueryRepository) setInCache(
 	}
 
 	log.Printf("Cache SET with registry for key: %s (%d entities)", cacheKey, len(graphNodes))
+}
+
+func (r *CachedGraphRepository) InvalidateByEntityIDs(ctx context.Context, entityIDs []int64) error {
+	if len(entityIDs) == 0 {
+		return nil
+	}
+
+	registryKeys := make([]string, len(entityIDs))
+	for i, entityID := range entityIDs {
+		registryKeys[i] = fmt.Sprintf("registry:entity:%d", entityID)
+	}
+
+	registryResults, err := r.redisClient.GetMultipleSetMembers(ctx, registryKeys)
+	if err != nil {
+		return fmt.Errorf("failed to get registry data: %w", err)
+	}
+
+	allKeysToDelete := make(map[string]bool)
+
+	for registryKey, relatedKeys := range registryResults {
+		// Adicionar o próprio registry
+		allKeysToDelete[registryKey] = true
+
+		// Adicionar todas as chaves relacionadas
+		for _, relatedKey := range relatedKeys {
+			allKeysToDelete[relatedKey] = true
+		}
+	}
+
+	keysToDelete := make([]string, 0, len(allKeysToDelete))
+	for key := range allKeysToDelete {
+		keysToDelete = append(keysToDelete, key)
+	}
+
+	// 5. Deletar todas as chaves
+	if len(keysToDelete) > 0 {
+		log.Printf("Invalidating %d cache keys for %d entities", len(keysToDelete), len(entityIDs))
+		return r.redisClient.InvalidateEntity(ctx, keysToDelete)
+	}
+
+	return nil
+}
+
+func (r *CachedGraphRepository) removeDuplicates(keys []string) []string {
+	keySet := make(map[string]bool)
+	for _, key := range keys {
+		keySet[key] = true
+	}
+
+	unique := make([]string, 0, len(keySet))
+	for key := range keySet {
+		unique = append(unique, key)
+	}
+
+	return unique
 }

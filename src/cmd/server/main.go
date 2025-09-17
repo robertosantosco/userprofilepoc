@@ -32,7 +32,7 @@ func main() {
 			newRedisClient,
 			newServer,
 			newGraphQueryRepository,
-			newCachedGraphQueryRepository,
+			newCachedGraphRepository,
 			newGraphWriteRepository,
 			newEntitiesService,
 			newTemporalWriteRepository,
@@ -98,26 +98,32 @@ func newGraphQueryRepository(pool *pgxpool.Pool) *repositories.GraphQueryReposit
 	return repositories.NewGraphQueryRepository(pool)
 }
 
-func newCachedGraphQueryRepository(
+func newCachedGraphRepository(
 	graphQueryRepository *repositories.GraphQueryRepository,
 	redisClient *redis.RedisClient,
-) *repositories.CachedGraphQueryRepository {
-	return repositories.NewCachedGraphQueryRepository(graphQueryRepository, redisClient)
+) *repositories.CachedGraphRepository {
+	return repositories.NewCachedGraphRepository(graphQueryRepository, redisClient)
 }
 
-func newGraphWriteRepository(pool *pgxpool.Pool) *repositories.GraphWriteRepository {
-	return repositories.NewGraphWriteRepository(pool)
+func newGraphWriteRepository(
+	pool *pgxpool.Pool,
+	cachedGraphRepository *repositories.CachedGraphRepository,
+) *repositories.GraphWriteRepository {
+	return repositories.NewGraphWriteRepository(pool, cachedGraphRepository)
 }
 
 func newEntitiesService(
-	cachedGraphQueryRepository *repositories.CachedGraphQueryRepository,
+	cachedGraphRepository *repositories.CachedGraphRepository,
 	graphWriteRepository *repositories.GraphWriteRepository,
 ) *services.GraphService {
-	return services.NewGraphService(cachedGraphQueryRepository, graphWriteRepository)
+	return services.NewGraphService(cachedGraphRepository, graphWriteRepository)
 }
 
-func newTemporalWriteRepository(pool *pgxpool.Pool) *repositories.TemporalWriteRepository {
-	return repositories.NewTemporalWriteRepository(pool)
+func newTemporalWriteRepository(
+	pool *pgxpool.Pool,
+	cachedGraphRepository *repositories.CachedGraphRepository,
+) *repositories.TemporalWriteRepository {
+	return repositories.NewTemporalWriteRepository(pool, cachedGraphRepository)
 }
 
 func newTemporalDataService(temporalWriteRepository *repositories.TemporalWriteRepository) *services.TemporalDataService {

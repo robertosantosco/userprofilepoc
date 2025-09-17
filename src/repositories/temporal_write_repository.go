@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 	"userprofilepoc/src/domain"
 
@@ -11,11 +12,12 @@ import (
 )
 
 type TemporalWriteRepository struct {
-	pool *pgxpool.Pool
+	pool                  *pgxpool.Pool
+	cachedGraphRepository *CachedGraphRepository
 }
 
-func NewTemporalWriteRepository(pool *pgxpool.Pool) *TemporalWriteRepository {
-	return &TemporalWriteRepository{pool: pool}
+func NewTemporalWriteRepository(pool *pgxpool.Pool, cachedGraphRepository *CachedGraphRepository) *TemporalWriteRepository {
+	return &TemporalWriteRepository{pool: pool, cachedGraphRepository: cachedGraphRepository}
 }
 
 func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemporalPropertyRequest domain.SyncTemporalPropertyRequest) error {
@@ -114,37 +116,57 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 					temp_datapoints td
 				JOIN
 					entity_ids ei ON td.entity_reference = ei.reference
-			)
+			),
 
-			INSERT INTO temporal_properties (
-				entity_id,
-				key,
-				value,
-				granularity,
-				reference_date,
-				reference_month,
-				idempotency_key
+			inserted_temporal AS (
+				INSERT INTO temporal_properties (
+					entity_id,
+					key,
+					value,
+					granularity,
+					reference_date,
+					reference_month,
+					idempotency_key
+				)
+				SELECT
+					entity_id,
+					key,
+					value,
+					granularity,
+					reference_date,
+					reference_month,
+					idempotency_key
+				FROM
+					temporal_data_to_upsert
+				ON CONFLICT ON CONSTRAINT 
+					tp_uniq_idempotency_key_reference_month
+				DO UPDATE SET
+					value = excluded.value,
+					updated_at = NOW()
 			)
-			SELECT
-				entity_id,
-				key,
-				value,
-				granularity,
-				reference_date,
-				reference_month,
-				idempotency_key
-			FROM
-				temporal_data_to_upsert
-			ON CONFLICT ON CONSTRAINT 
-				tp_uniq_idempotency_key_reference_month
-			DO UPDATE SET
-				value = excluded.value,
-				updated_at = NOW();
+			
+			SELECT DISTINCT id FROM entity_ids;
 	`
-
-	if _, err := tx.Exec(ctx, query); err != nil {
+	rowss, err := tx.Query(ctx, query)
+	if err != nil {
 		return fmt.Errorf("failed to execute temporal upsert query: %w", err)
 	}
+
+	var affectedIDs []int64
+	for rowss.Next() {
+		var id int64
+		if err := rowss.Scan(&id); err != nil {
+			return fmt.Errorf("failed to scan entity ID: %w", err)
+		}
+		affectedIDs = append(affectedIDs, id)
+	}
+
+	// Invalidar cache em background
+	go func() {
+		if invalidateErr := r.cachedGraphRepository.InvalidateByEntityIDs(context.Background(), affectedIDs); invalidateErr != nil {
+			log.Printf("Failed to invalidate cache: %v", invalidateErr)
+		}
+	}()
 
 	return tx.Commit(ctx)
 }

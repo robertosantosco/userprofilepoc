@@ -10,17 +10,17 @@ import (
 )
 
 type GraphService struct {
-	cachedGraphQueryRepository *repositories.CachedGraphQueryRepository
-	graphWriteRepository       *repositories.GraphWriteRepository
+	cachedGraphRepository *repositories.CachedGraphRepository
+	graphWriteRepository  *repositories.GraphWriteRepository
 }
 
 func NewGraphService(
-	cachedGraphQueryRepository *repositories.CachedGraphQueryRepository,
+	cachedGraphRepository *repositories.CachedGraphRepository,
 	graphWriteRepository *repositories.GraphWriteRepository,
 ) *GraphService {
 	return &GraphService{
-		cachedGraphQueryRepository: cachedGraphQueryRepository,
-		graphWriteRepository:       graphWriteRepository,
+		cachedGraphRepository: cachedGraphRepository,
+		graphWriteRepository:  graphWriteRepository,
 	}
 }
 
@@ -36,7 +36,7 @@ func (gs *GraphService) GetTreeByEntityID(ctx context.Context, EntityID int64) (
 		Value:    EntityID,
 	}
 
-	graphNodes, temporalProps, err := gs.cachedGraphQueryRepository.QueryTree(ctx, condition, depthLimit, startTime)
+	graphNodes, temporalProps, err := gs.cachedGraphRepository.QueryTree(ctx, condition, depthLimit, startTime)
 	if err != nil {
 		return nil, fmt.Errorf("GraphService.GetTreeByEntityID - failed to QueryTree from repository: %w", err)
 	}
@@ -63,7 +63,7 @@ func (gs *GraphService) GetTreeByEntityProperty(ctx context.Context, propName st
 		Value:    propValue,
 	}
 
-	graphNodes, temporalProps, err := gs.cachedGraphQueryRepository.QueryTree(ctx, condition, depthLimit, startTime)
+	graphNodes, temporalProps, err := gs.cachedGraphRepository.QueryTree(ctx, condition, depthLimit, startTime)
 	if err != nil {
 		return nil, fmt.Errorf("GraphService.GetTreeByEntityProperty - failed to QueryTree from repository: %w", err)
 	}

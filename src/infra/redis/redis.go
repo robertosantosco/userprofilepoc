@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -100,6 +101,42 @@ func (rc *RedisClient) GetKey(ctx context.Context, key string) (string, bool, er
 	}
 
 	return result.Val(), true, nil
+}
+
+func (rc *RedisClient) GetMultipleSetMembers(ctx context.Context, keys []string) (map[string][]string, error) {
+	if len(keys) == 0 {
+		return make(map[string][]string), nil
+	}
+
+	pipe := rc.client.Pipeline()
+
+	// Adicionar todos os SMEMBERS ao pipeline
+	cmds := make(map[string]*redis.StringSliceCmd)
+	for _, key := range keys {
+		cmds[key] = pipe.SMembers(ctx, key)
+	}
+
+	// Executar pipeline de uma vez
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Coletar resultados
+	results := make(map[string][]string)
+	for key, cmd := range cmds {
+		members, err := cmd.Result()
+		if err == redis.Nil {
+			results[key] = []string{} // Set vazio
+		} else if err != nil {
+			log.Printf("Failed to get members for key %s: %v", key, err)
+			results[key] = []string{}
+		} else {
+			results[key] = members
+		}
+	}
+
+	return results, nil
 }
 
 // Invalidação em cluster requer cuidado especial
