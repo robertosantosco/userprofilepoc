@@ -27,7 +27,12 @@ type FindCondition struct {
 	Value    interface{} // O valor a ser usado como argumento na query.
 }
 
-func (gqr *GraphQueryRepository) QueryTree(ctx context.Context, condition FindCondition, depthLimit int, referenceMonth time.Time) ([]domain.GraphNode, []entities.TemporalProperty, error) {
+func (gqr *GraphQueryRepository) QueryTree(
+	ctx context.Context,
+	condition FindCondition,
+	depthLimit int,
+	referenceMonth time.Time,
+) ([]domain.GraphNode, []entities.TemporalProperty, error) {
 	baseGraphNodeQuery := `
 		WITH RECURSIVE entity_graph (entity_id, parent_id, relationship_type, depth) AS (
 			SELECT 

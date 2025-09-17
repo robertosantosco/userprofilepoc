@@ -10,6 +10,7 @@ import (
 	"time"
 	"userprofilepoc/src/helper/env"
 	"userprofilepoc/src/infra/postgres"
+	"userprofilepoc/src/infra/redis"
 	"userprofilepoc/src/repositories"
 	"userprofilepoc/src/server"
 	"userprofilepoc/src/services"
@@ -28,8 +29,10 @@ func main() {
 		fx.Provide(
 			newLogger,
 			newSQLClient,
+			newRedisClient,
 			newServer,
 			newGraphQueryRepository,
+			newCachedGraphQueryRepository,
 			newGraphWriteRepository,
 			newEntitiesService,
 			newTemporalWriteRepository,
@@ -82,8 +85,24 @@ func newSQLClient() (*pgxpool.Pool, error) {
 	return postgres.NewPostgresClient(dbHost, dbPort, dbname, dbUser, dbPassword, maxConnections)
 }
 
+func newRedisClient() *redis.RedisClient {
+	redisHosts := env.MustGetString("REDIS_HOSTS")
+	redisPoolSize := env.GetInt("REDIS_POOL_SIZE", 50)
+	redisDefaultTTLSeconds := env.GetInt("REDIS_DEFAULT_TTL_SECONDS", 120)
+	redisDefaultTTL := time.Duration(redisDefaultTTLSeconds) * time.Second
+
+	return redis.NewRedisClient(redisHosts, redisPoolSize, redisDefaultTTL)
+}
+
 func newGraphQueryRepository(pool *pgxpool.Pool) *repositories.GraphQueryRepository {
 	return repositories.NewGraphQueryRepository(pool)
+}
+
+func newCachedGraphQueryRepository(
+	graphQueryRepository *repositories.GraphQueryRepository,
+	redisClient *redis.RedisClient,
+) *repositories.CachedGraphQueryRepository {
+	return repositories.NewCachedGraphQueryRepository(graphQueryRepository, redisClient)
 }
 
 func newGraphWriteRepository(pool *pgxpool.Pool) *repositories.GraphWriteRepository {
@@ -91,10 +110,10 @@ func newGraphWriteRepository(pool *pgxpool.Pool) *repositories.GraphWriteReposit
 }
 
 func newEntitiesService(
-	graphQueryRepository *repositories.GraphQueryRepository,
+	cachedGraphQueryRepository *repositories.CachedGraphQueryRepository,
 	graphWriteRepository *repositories.GraphWriteRepository,
 ) *services.GraphService {
-	return services.NewGraphService(graphQueryRepository, graphWriteRepository)
+	return services.NewGraphService(cachedGraphQueryRepository, graphWriteRepository)
 }
 
 func newTemporalWriteRepository(pool *pgxpool.Pool) *repositories.TemporalWriteRepository {

@@ -11,7 +11,128 @@ services:
       - POSTGRES_PASSWORD=poc_password
       - POSTGRES_DB=user_profile_db
     volumes: 
-      - /opt/postgres-data-userprofilepoc:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped 
+
+  redis-node-1:
+    image: redis:7-alpine
+    ports:
+      - "7001:7001"
+      - "17001:17001"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.3'
     command: >
-      postgres -c shared_preload_libraries='pg_partman_bgw,pg_cron' -c cron.database_name=user_profile_db
+      redis-server
+      --port 7001
+      --cluster-enabled yes
+      --cluster-config-file nodes-7001.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-1
+      --cluster-announce-port 7001
+      --cluster-announce-bus-port 17001
+      --maxmemory 1500mb
+      --maxmemory-policy allkeys-lru
+      --appendonly no
+      --save ""
+      --tcp-keepalive 60
+      --timeout 300
+      --maxclients 5000
+    volumes:
+      - redis_node_1_data:/data
+
+  redis-node-2:
+    image: redis:7-alpine
+    ports:
+      - "7002:7002"
+      - "17002:17002"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.3'
+    command: >
+      redis-server
+      --port 7002
+      --cluster-enabled yes
+      --cluster-config-file nodes-7002.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-2
+      --cluster-announce-port 7002
+      --cluster-announce-bus-port 17002
+      --maxmemory 1500mb
+      --maxmemory-policy allkeys-lru
+      --appendonly no
+      --save ""
+      --tcp-keepalive 60
+      --timeout 300
+      --maxclients 5000
+    volumes:
+      - redis_node_2_data:/data
+
+  redis-node-3:
+    image: redis:7-alpine
+    ports:
+      - "7003:7003"
+      - "17003:17003"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.3'
+    command: >
+      redis-server
+      --port 7003
+      --cluster-enabled yes
+      --cluster-config-file nodes-7003.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-3
+      --cluster-announce-port 7003
+      --cluster-announce-bus-port 17003
+      --maxmemory 1500mb
+      --maxmemory-policy allkeys-lru
+      --appendonly no
+      --save ""
+      --tcp-keepalive 60
+      --timeout 300
+      --maxclients 5000
+    volumes:
+      - redis_node_3_data:/data
+
+  redis-cluster-init:
+    image: redis:7-alpine
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+    command: >
+      sh -c "sleep 10 && redis-cli --cluster create redis-node-1:7001 redis-node-2:7002 redis-node-3:7003 --cluster-replicas 0 --cluster-yes"
+
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    ports:
+      - "5540:5540"
+    restart: unless-stopped
+    volumes:
+      - redis_insight_data:/data
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_node_1_data:
+    driver: local
+  redis_node_2_data:
+    driver: local
+  redis_node_3_data:
+    driver: local
+  redis_insight_data:
+    driver: local
