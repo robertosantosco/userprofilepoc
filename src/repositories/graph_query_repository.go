@@ -14,11 +14,11 @@ import (
 )
 
 type GraphQueryRepository struct {
-	pool *pgxpool.Pool
+	readPool *pgxpool.Pool
 }
 
-func NewGraphQueryRepository(pool *pgxpool.Pool) *GraphQueryRepository {
-	return &GraphQueryRepository{pool: pool}
+func NewGraphQueryRepository(readPool *pgxpool.Pool) *GraphQueryRepository {
+	return &GraphQueryRepository{readPool: readPool}
 }
 
 type FindCondition struct {
@@ -97,7 +97,7 @@ func (gqr *GraphQueryRepository) QueryTree(
 
 	graphNodeQuery := fmt.Sprintf(baseGraphNodeQuery, queryField, condition.Operator)
 
-	grapthRows, err := gqr.pool.Query(ctx, graphNodeQuery, queryValue, depthLimit)
+	grapthRows, err := gqr.readPool.Query(ctx, graphNodeQuery, queryValue, depthLimit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - graph query failed: %w", err)
 	}
@@ -155,7 +155,7 @@ func (gqr *GraphQueryRepository) QueryTree(
 		LIMIT
 			1000; -- Limite para evitar consultas muito grandes
 	`
-	temporalRows, err := gqr.pool.Query(ctx, temporalPropertiesQuery, entityIDs, referenceMonth.Format("2006-01-02"))
+	temporalRows, err := gqr.readPool.Query(ctx, temporalPropertiesQuery, entityIDs, referenceMonth.Format("2006-01-02"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("GraphQueryRepository.QueryTree - temporal query failed: %w", err)
 	}

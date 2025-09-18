@@ -11,12 +11,12 @@ import (
 )
 
 type GraphWriteRepository struct {
-	pool                  *pgxpool.Pool
+	writePool             *pgxpool.Pool
 	cachedGraphRepository *CachedGraphRepository
 }
 
-func NewGraphWriteRepository(pool *pgxpool.Pool, cachedGraphRepository *CachedGraphRepository) *GraphWriteRepository {
-	return &GraphWriteRepository{pool: pool, cachedGraphRepository: cachedGraphRepository}
+func NewGraphWriteRepository(writePool *pgxpool.Pool, cachedGraphRepository *CachedGraphRepository) *GraphWriteRepository {
+	return &GraphWriteRepository{writePool: writePool, cachedGraphRepository: cachedGraphRepository}
 }
 
 func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.SyncGraphRequest) error {
@@ -35,7 +35,7 @@ func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.Syn
 		return nil
 	}
 
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.writePool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

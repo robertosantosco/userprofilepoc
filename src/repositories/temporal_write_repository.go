@@ -12,12 +12,12 @@ import (
 )
 
 type TemporalWriteRepository struct {
-	pool                  *pgxpool.Pool
+	writePool             *pgxpool.Pool
 	cachedGraphRepository *CachedGraphRepository
 }
 
-func NewTemporalWriteRepository(pool *pgxpool.Pool, cachedGraphRepository *CachedGraphRepository) *TemporalWriteRepository {
-	return &TemporalWriteRepository{pool: pool, cachedGraphRepository: cachedGraphRepository}
+func NewTemporalWriteRepository(writePool *pgxpool.Pool, cachedGraphRepository *CachedGraphRepository) *TemporalWriteRepository {
+	return &TemporalWriteRepository{writePool: writePool, cachedGraphRepository: cachedGraphRepository}
 }
 
 func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemporalPropertyRequest domain.SyncTemporalPropertyRequest) error {
@@ -25,7 +25,7 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 		return nil
 	}
 
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.writePool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
