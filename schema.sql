@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS edges (
 
 -- Índices para otimizar a navegação no grafo.
 CREATE INDEX idx_edges_left_relationship_right ON edges (left_entity_id, relationship_type) INCLUDE (right_entity_id);
-CREATE INDEX IF NOT EXISTS idx_edges_metadata  ON edges USING GIN(metadata);
+CREATE INDEX IF NOT EXISTS idx_edges_metadata  ON edges USING GIN(metadata jsonb_path_ops);
 
 -- 3) TABELA TEMPORAL PARTICIONADA
 -- ---------------------------------------------------------------------
@@ -68,8 +68,8 @@ CREATE TABLE IF NOT EXISTS temporal_properties (
 ) PARTITION BY RANGE (reference_month);
 
 -- adicionado indexes na tabela pai
-CREATE INDEX IF NOT EXISTS tp_value_gin ON temporal_properties USING GIN (value);
-CREATE INDEX idx_temporal_entity_date_key ON temporal_properties (entity_id, reference_date DESC, key) INCLUDE (value, idempotency_key, granularity, created_at, updated_at);
+CREATE INDEX IF NOT EXISTS tp_value_gin ON temporal_properties USING GIN (value jsonb_path_ops);
+CREATE INDEX idx_temporal_entity_date_key ON temporal_properties (entity_id, reference_date DESC, key) INCLUDE (granularity);
 
 -- Tabela TEMPLATE: Serve como modelo para as novas partições.
 CREATE TABLE IF NOT EXISTS temporal_properties_template (LIKE temporal_properties INCLUDING ALL);

@@ -111,7 +111,7 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 						WHEN td.granularity = 'month'   THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_month, 'YYYY-MM')
 						WHEN td.granularity = 'quarter' THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_date, 'YYYY') || '-Q' || ((extract(month from td.reference_date)-1)/3 + 1)
 						WHEN td.granularity = 'year'    THEN ei.id || ':' || td.key || ':' || td.granularity || ':' || to_char(td.reference_date, 'YYYY')
-						END AS idempotency_key
+					END AS idempotency_key
 				FROM
 					temp_datapoints td
 				JOIN
