@@ -15,7 +15,6 @@ import (
 	"userprofilepoc/src/server"
 	"userprofilepoc/src/services"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 )
 
@@ -28,7 +27,7 @@ func main() {
 		// Providers
 		fx.Provide(
 			newLogger,
-			newSQLClient,
+			newNewReadWriteClient,
 			newRedisClient,
 			newServer,
 			newGraphQueryRepository,
@@ -73,16 +72,18 @@ func newLogger() *slog.Logger {
 	return logger
 }
 
-// newSQLClient configures and returns a pgxpool connection pool
-func newSQLClient() (*pgxpool.Pool, error) {
-	dbHost := env.MustGetString("DB_HOST")
-	dbPort := env.GetString("DB_PORT", "5432")
+// newNewReadWriteClient configures and returns a pgxpool connection pool
+func newNewReadWriteClient() (*postgres.ReadWriteClient, error) {
+	dbReadHost := env.MustGetString("DB_READ_HOST")
+	dbWriteHost := env.MustGetString("DB_WRITE_HOST")
+	dbReadPort := env.GetString("DB_READ_PORT", "5432")
+	dbWritePort := env.GetString("DB_WRITE_PORT", "5432")
 	dbname := env.MustGetString("DB_NAME")
 	dbUser := env.MustGetString("DB_USER")
 	dbPassword := env.MustGetString("DB_PASSWORD")
 	maxConnections := env.GetInt("DB_MAX_POOL_CONNECTIONS", 25)
 
-	return postgres.NewPostgresClient(dbHost, dbPort, dbname, dbUser, dbPassword, maxConnections)
+	return postgres.NewReadWriteClient(dbReadHost, dbWriteHost, dbReadPort, dbWritePort, dbname, dbUser, dbPassword, maxConnections)
 }
 
 func newRedisClient() *redis.RedisClient {
@@ -94,8 +95,8 @@ func newRedisClient() *redis.RedisClient {
 	return redis.NewRedisClient(redisHosts, redisPoolSize, redisDefaultTTL)
 }
 
-func newGraphQueryRepository(pool *pgxpool.Pool) *repositories.GraphQueryRepository {
-	return repositories.NewGraphQueryRepository(pool)
+func newGraphQueryRepository(readWriteClient *postgres.ReadWriteClient) *repositories.GraphQueryRepository {
+	return repositories.NewGraphQueryRepository(readWriteClient.GetReadPool())
 }
 
 func newCachedGraphRepository(
@@ -106,10 +107,10 @@ func newCachedGraphRepository(
 }
 
 func newGraphWriteRepository(
-	pool *pgxpool.Pool,
+	readWriteClient *postgres.ReadWriteClient,
 	cachedGraphRepository *repositories.CachedGraphRepository,
 ) *repositories.GraphWriteRepository {
-	return repositories.NewGraphWriteRepository(pool, cachedGraphRepository)
+	return repositories.NewGraphWriteRepository(readWriteClient.GetWritePool(), cachedGraphRepository)
 }
 
 func newEntitiesService(
@@ -120,10 +121,10 @@ func newEntitiesService(
 }
 
 func newTemporalWriteRepository(
-	pool *pgxpool.Pool,
+	readWriteClient *postgres.ReadWriteClient,
 	cachedGraphRepository *repositories.CachedGraphRepository,
 ) *repositories.TemporalWriteRepository {
-	return repositories.NewTemporalWriteRepository(pool, cachedGraphRepository)
+	return repositories.NewTemporalWriteRepository(readWriteClient.GetWritePool(), cachedGraphRepository)
 }
 
 func newTemporalDataService(temporalWriteRepository *repositories.TemporalWriteRepository) *services.TemporalDataService {
