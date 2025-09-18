@@ -1,18 +1,94 @@
 version: '3.8' 
 
 services: 
-  postgres-poc: 
+  postgres-primary:
     build: .
-    container_name: user-profile-poc-db
+    container_name: user-profile-primary-db
     ports: 
       - "5432:5432"
-    environment: 
+    environment:
       - POSTGRES_USER=poc_user
       - POSTGRES_PASSWORD=poc_password
       - POSTGRES_DB=user_profile_db
+      - POSTGRES_REPLICATION_USER=replicator
+      - POSTGRES_REPLICATION_PASSWORD=replicator_password
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=20
+      -c max_replication_slots=3
+      -c hot_standby=on
+      -c archive_mode=on
+      -c archive_command='test ! -f /var/lib/postgresql/archive/%f && cp %p /var/lib/postgresql/archive/%f'
+      -c max_connections=200
+      -c shared_buffers=512MB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
+      -c effective_cache_size=1GB
     volumes: 
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped 
+      - postgres_primary_data:/var/lib/postgresql/data:rw
+      - postgres_archive:/var/lib/postgresql/archive:rw
+    restart: unless-stopped
+
+  postgres-replica-1:
+    build: .
+    user: postgres
+    container_name: user-profile-replica-1-db
+    ports:
+      - "5433:5432"
+    environment:
+      - PGUSER=poc_user
+      - POSTGRES_PASSWORD=poc_password
+      - POSTGRES_DB=user_profile_db
+      - POSTGRES_REPLICATION_USER=replicator
+      - POSTGRES_REPLICATION_PASSWORD=replicator_password
+    command: >
+      bash -c "
+      chown -R postgres:postgres /var/lib/postgresql/data &&
+      chmod 700 /var/lib/postgresql/data &&
+      until PGPASSWORD=replicator_password pg_basebackup -h postgres-primary -D /var/lib/postgresql/data -U replicator -v -P; do
+        echo 'Waiting for primary to be available...'
+        sleep 5
+      done &&
+      echo \"primary_conninfo = 'host=postgres-primary port=5432 user=replicator password=replicator_password'\" > /var/lib/postgresql/data/postgresql.auto.conf &&
+      touch /var/lib/postgresql/data/standby.signal &&
+      postgres -c hot_standby=on -c max_connections=200 -c shared_buffers=512MB -c max_wal_senders=20 -c max_replication_slots=3 -c wal_level=replica
+      "
+    volumes:
+      - postgres_replica_1_data:/var/lib/postgresql/data:rw
+    depends_on:
+      - postgres-primary
+    restart: unless-stopped
+
+  postgres-replica-2:
+    build: .
+    user: postgres
+    container_name: user-profile-replica-2-db
+    ports:
+      - "5434:5432"
+    environment:
+      - PGUSER=poc_user
+      - POSTGRES_PASSWORD=poc_password
+      - POSTGRES_DB=user_profile_db
+      - POSTGRES_REPLICATION_USER=replicator
+      - POSTGRES_REPLICATION_PASSWORD=replicator_password
+    command: >
+      bash -c "
+      chown -R postgres:postgres /var/lib/postgresql/data &&
+      chmod 700 /var/lib/postgresql/data &&
+      until PGPASSWORD=replicator_password pg_basebackup -h postgres-primary -D /var/lib/postgresql/data -U replicator -v -P; do
+        echo 'Waiting for primary to be available...'
+        sleep 5
+      done &&
+      echo \"primary_conninfo = 'host=postgres-primary port=5432 user=replicator password=replicator_password'\" > /var/lib/postgresql/data/postgresql.auto.conf &&
+      touch /var/lib/postgresql/data/standby.signal &&
+      postgres -c hot_standby=on -c max_connections=200 -c shared_buffers=512MB -c max_wal_senders=20 -c max_replication_slots=3 -c wal_level=replica
+      "
+    volumes:
+      - postgres_replica_2_data:/var/lib/postgresql/data:rw
+    depends_on:
+      - postgres-primary
+    restart: unless-stopped
 
   redis-node-1:
     image: redis:7-alpine
@@ -126,7 +202,13 @@ services:
       - redis-node-3
 
 volumes:
-  postgres_data:
+  postgres_primary_data:
+   driver: local
+  postgres_replica_1_data:
+    driver: local  
+  postgres_replica_2_data:
+    driver: local
+  postgres_archive:
     driver: local
   redis_node_1_data:
     driver: local
