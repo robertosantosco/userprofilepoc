@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"userprofilepoc/src/domain/entities"
@@ -67,23 +68,25 @@ var (
 )
 
 func newSQLClient() (*pgxpool.Pool, error) {
-	dbHost := env.MustGetString("DB_HOST")
-	dbPort := env.GetString("DB_PORT", "5432")
+	dbHost := env.MustGetString("DB_WRITE_HOST")
+	dbPort := env.GetString("DB_WRITE_PORT", "5432")
 	dbname := env.MustGetString("DB_NAME")
 	dbUser := env.MustGetString("DB_USER")
 	dbPassword := env.MustGetString("DB_PASSWORD")
-	maxConnections := env.GetInt("DB_MAX_POOL_CONNECTIONS", 25)
+	maxConnections := 100
 	return postgres.NewPostgresClient(dbHost, dbPort, dbname, dbUser, dbPassword, maxConnections)
 }
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	numClients := flag.Int("clients", 1, "Número de clientes a serem criados. Use -1 para infinito.")
-	bulkSize := flag.Int("bulk-size", 100, "Quantidade de clientes a serem salvos em um único bulk insert.")
-	monthsToGenerate := flag.Int("months", 6, "Quantos meses para trás gerar dados retroativos.")
-	monthsPercentage := flag.Float64("months-perc", 100.0, "Percentual de meses a serem preenchidos (0-100).")
-	usersPerOrg := flag.Int("users-per-org", 1, "Quantidade de usuários por organização.")
-	numConsumers := flag.Int("consumers", 4, "Número de goroutines consumidoras.")
+
+	// CONFIGURAÇÕES ULTRA AGRESSIVAS
+	numClients := flag.Int("clients", -1, "Número de clientes a serem criados. Use -1 para infinito.")
+	bulkSize := flag.Int("bulk-size", 1000, "BULK SIZE MASSIVO")
+	monthsToGenerate := flag.Int("months", 3, "REDUZIR meses para acelerar")
+	monthsPercentage := flag.Float64("months-perc", 50.0, "REDUZIR percentage")
+	usersPerOrg := flag.Int("users-per-org", 1, "1 user por org para evitar conflitos")
+	numConsumers := flag.Int("consumers", 16, "MUITO MAIS CONSUMERS")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,27 +98,67 @@ func main() {
 	}
 	defer db.Close()
 
-	dataChan := make(chan DataBundle, *bulkSize**numConsumers)
-	var wg sync.WaitGroup
+	// CHANNEL GIGANTE
+	chanSize := (*bulkSize) * (*numConsumers) * 5
+	dataChan := make(chan DataBundle, chanSize)
 
+	var wg sync.WaitGroup
+	var totalProcessed, totalErrors int64
+	startTime := time.Now()
+
+	// Métricas a cada 2 segundos
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				processed := atomic.LoadInt64(&totalProcessed)
+				errors := atomic.LoadInt64(&totalErrors)
+				elapsed := time.Since(startTime)
+				rate := float64(processed) / elapsed.Seconds()
+
+				fmt.Printf("📊 Processed: %d | Errors: %d | Rate: %.1f/s | Elapsed: %v\n",
+					processed, errors, rate, elapsed.Round(time.Second))
+			}
+		}
+	}()
+
+	// INICIAR CONSUMERS
 	for i := 0; i < *numConsumers; i++ {
 		wg.Add(1)
-		go consumer(ctx, &wg, db, dataChan, *bulkSize, i+1)
+		go optimizedConsumer(ctx, &wg, db, dataChan, *bulkSize, i+1, &totalProcessed, &totalErrors)
 	}
 
+	// INICIAR PRODUCER
 	wg.Add(1)
 	go producer(ctx, &wg, dataChan, *numClients, *monthsToGenerate, *usersPerOrg, *monthsPercentage)
 
+	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		fmt.Println("\nShutdown signal received, stopping...")
+		fmt.Println("\n🛑 Shutdown signal received, stopping...")
 		cancel()
 	}()
 
 	wg.Wait()
-	fmt.Println("Seeding finished.")
+
+	// Estatísticas finais
+	elapsed := time.Since(startTime)
+	processed := atomic.LoadInt64(&totalProcessed)
+	errors := atomic.LoadInt64(&totalErrors)
+	avgRate := float64(processed) / elapsed.Seconds()
+
+	fmt.Printf("\n🏁 Seeding finished!\n")
+	fmt.Printf("📊 Total processed: %d\n", processed)
+	fmt.Printf("❌ Total errors: %d\n", errors)
+	fmt.Printf("⏱️  Total time: %v\n", elapsed.Round(time.Second))
+	fmt.Printf("🚀 Average rate: %.1f records/s\n", avgRate)
 }
 
 func producer(ctx context.Context, wg *sync.WaitGroup, dataChan chan<- DataBundle, numClients, monthsToGenerate, usersPerOrg int, monthsPercentage float64) {
@@ -131,30 +174,47 @@ func producer(ctx context.Context, wg *sync.WaitGroup, dataChan chan<- DataBundl
 			fmt.Println("Producer stopping.")
 			return
 		default:
-			org := generateFakeOrganization()
-			for i := 0; i < usersPerOrg; i++ {
-				if !isInfinite && clientCount >= numClients {
-					break
-				}
+			// CORREÇÃO: Gerar uma organização por usuário para evitar conflitos
+			// Ao invés de reutilizar a mesma org para múltiplos users
+
+			for i := 0; i < usersPerOrg && (isInfinite || clientCount < numClients); i++ {
+				// Gerar org ÚNICA para cada bundle
+				org := generateFakeOrganization()
 				user, affiliations, posDevices, temporalProps := generateFakeUserData(org, monthsToGenerate, monthsPercentage)
-				dataChan <- DataBundle{
+
+				select {
+				case dataChan <- DataBundle{
 					User:          user,
-					Org:           org,
+					Org:           org, // Org única para este bundle
 					Affiliations:  affiliations,
 					PosDevices:    posDevices,
 					TemporalProps: temporalProps,
+				}:
+					clientCount++
+					if clientCount%100 == 0 {
+						fmt.Printf("Generated %d clients\n", clientCount)
+					}
+				case <-ctx.Done():
+					return
 				}
-				clientCount++
 			}
+
+			// Micro-pausa apenas para evitar 100% CPU
+			if clientCount%1000 == 0 {
+				time.Sleep(10 * time.Millisecond)
+			}
+
+			time.Sleep(25 * time.Millisecond)
 		}
 	}
 }
 
-func consumer(ctx context.Context, wg *sync.WaitGroup, db *pgxpool.Pool, dataChan <-chan DataBundle, bulkSize, consumerID int) {
+func optimizedConsumer(ctx context.Context, wg *sync.WaitGroup, db *pgxpool.Pool, dataChan <-chan DataBundle, bulkSize, consumerID int, totalProcessed, totalErrors *int64) {
 	defer wg.Done()
-	log.Printf("Consumer %d started", consumerID)
+	log.Printf("🚀 Consumer %d started", consumerID)
 
-	ticker := time.NewTicker(5 * time.Second)
+	// Timeout menor para flush mais frequente
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	bundles := make([]DataBundle, 0, bulkSize)
 
@@ -163,155 +223,246 @@ func consumer(ctx context.Context, wg *sync.WaitGroup, db *pgxpool.Pool, dataCha
 		case b, ok := <-dataChan:
 			if !ok {
 				if len(bundles) > 0 {
-					log.Printf("Consumer %d: flushing %d bundles...", consumerID, len(bundles))
 					if err := bulkInsert(ctx, db, bundles); err != nil {
-						log.Printf("Consumer %d: ERROR on final flush: %v", consumerID, err)
+						log.Printf("❌ Consumer %d: ERROR on final flush: %v", consumerID, err)
+						atomic.AddInt64(totalErrors, 1)
+					} else {
+						atomic.AddInt64(totalProcessed, int64(len(bundles)))
 					}
 				}
-				log.Printf("Consumer %d stopping.", consumerID)
+				log.Printf("✅ Consumer %d stopping.", consumerID)
 				return
 			}
+
 			bundles = append(bundles, b)
 			if len(bundles) >= bulkSize {
 				if err := bulkInsert(ctx, db, bundles); err != nil {
-					log.Printf("Consumer %d: ERROR on bulk insert: %v", consumerID, err)
+					log.Printf("❌ Consumer %d: ERROR on bulk insert: %v", consumerID, err)
+					atomic.AddInt64(totalErrors, 1)
+				} else {
+					atomic.AddInt64(totalProcessed, int64(len(bundles)))
 				}
 				bundles = make([]DataBundle, 0, bulkSize)
 			}
+
 		case <-ticker.C:
 			if len(bundles) > 0 {
 				if err := bulkInsert(ctx, db, bundles); err != nil {
-					log.Printf("Consumer %d: ERROR on ticker flush: %v", consumerID, err)
+					log.Printf("❌ Consumer %d: ERROR on ticker flush: %v", consumerID, err)
+					atomic.AddInt64(totalErrors, 1)
+				} else {
+					atomic.AddInt64(totalProcessed, int64(len(bundles)))
 				}
 				bundles = make([]DataBundle, 0, bulkSize)
 			}
+
 		case <-ctx.Done():
-			log.Printf("Consumer %d received stop signal.", consumerID)
+			log.Printf("🛑 Consumer %d received stop signal.", consumerID)
 			return
 		}
 	}
 }
 
 func bulkInsert(ctx context.Context, db *pgxpool.Pool, bundles []DataBundle) error {
+	// Timeout mais longo para operações grandes
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	entityMap := make(map[string]int64)
-	entityRows := [][]any{}
-	allReferences := make([]string, 0, len(bundles)*4)
-	refCheck := make(map[string]struct{})
+	entityMap := make(map[string]int64, len(bundles)*5) // Pre-allocate
+	allReferences := make([]string, 0, len(bundles)*5)
+	refCheck := make(map[string]struct{}, len(bundles)*5)
 
+	// Coletar entidades
+	entityRows := make([][]any, 0, len(bundles)*5)
 	for _, b := range bundles {
 		entitiesToAdd := []entities.Entity{b.User, b.Org}
 		entitiesToAdd = append(entitiesToAdd, b.Affiliations...)
 		entitiesToAdd = append(entitiesToAdd, b.PosDevices...)
 		for _, e := range entitiesToAdd {
-			entityRows = append(entityRows, []any{e.Type, e.Reference, e.Properties})
 			if _, exists := refCheck[e.Reference]; !exists {
+				entityRows = append(entityRows, []any{e.Type, e.Reference, e.Properties})
 				allReferences = append(allReferences, e.Reference)
 				refCheck[e.Reference] = struct{}{}
 			}
 		}
 	}
 
-	_, err = tx.CopyFrom(ctx, pgx.Identifier{"entities"}, []string{"type", "reference", "properties"}, pgx.CopyFromRows(entityRows))
-	if err != nil {
-		log.Printf("WARN: CopyFrom entities failed, likely due to conflicts. Proceeding to fetch IDs. Error: %v", err)
+	// 1. INSERIR TODAS AS ENTIDADES DE UMA VEZ (SEM BATCHES)
+	if len(entityRows) > 0 {
+		types := make([]string, len(entityRows))
+		references := make([]string, len(entityRows))
+		properties := make([]string, len(entityRows))
+
+		for i, row := range entityRows {
+			types[i] = row[0].(string)
+			references[i] = row[1].(string)
+			if propBytes, ok := row[2].([]byte); ok {
+				properties[i] = string(propBytes)
+			} else {
+				propJson, _ := json.Marshal(row[2])
+				properties[i] = string(propJson)
+			}
+		}
+
+		// INSERT MASSIVO
+		insertSQL := `
+			INSERT INTO entities (type, reference, properties) 
+			SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::jsonb[])
+			ON CONFLICT (type, reference) DO NOTHING
+		`
+
+		_, err = tx.Exec(ctx, insertSQL, types, references, properties)
+		if err != nil {
+			return fmt.Errorf("failed to insert entities: %w", err)
+		}
 	}
 
+	// 2. BUSCAR TODOS OS IDs DE UMA VEZ
 	idRows, err := tx.Query(ctx, `SELECT id, reference FROM entities WHERE reference = ANY($1)`, allReferences)
 	if err != nil {
-		return fmt.Errorf("failed to re-fetch entity IDs: %w", err)
+		return fmt.Errorf("failed to fetch entity IDs: %w", err)
 	}
+
 	for idRows.Next() {
 		var id int64
 		var ref string
 		if err := idRows.Scan(&id, &ref); err != nil {
+			idRows.Close()
 			return err
 		}
 		entityMap[ref] = id
 	}
 	idRows.Close()
 
-	edgeRows := [][]any{}
+	// 3. INSERIR TODAS AS EDGES DE UMA VEZ
+	edgeRows := make([][]any, 0, len(bundles)*3)
 	for _, b := range bundles {
 		userID, uok := entityMap[b.User.Reference]
 		orgID, ook := entityMap[b.Org.Reference]
-		if !uok || !ook {
-			continue
+		if uok && ook {
+			edgeRows = append(edgeRows, []any{userID, orgID, "member_of"})
 		}
-		edgeRows = append(edgeRows, []any{userID, orgID, "member_of"})
+
 		for _, aff := range b.Affiliations {
-			if affID, ok := entityMap[aff.Reference]; ok {
+			if affID, ok := entityMap[aff.Reference]; ok && ook {
 				edgeRows = append(edgeRows, []any{orgID, affID, "has_affiliation"})
 			}
 		}
 	}
+
 	if len(edgeRows) > 0 {
-		_, err = tx.CopyFrom(ctx, pgx.Identifier{"edges"}, []string{"left_entity_id", "right_entity_id", "relationship_type"}, pgx.CopyFromRows(edgeRows))
+		leftIDs := make([]int64, len(edgeRows))
+		rightIDs := make([]int64, len(edgeRows))
+		relationshipTypes := make([]string, len(edgeRows))
+
+		for i, edge := range edgeRows {
+			leftIDs[i] = edge[0].(int64)
+			rightIDs[i] = edge[1].(int64)
+			relationshipTypes[i] = edge[2].(string)
+		}
+
+		edgeSQL := `
+			INSERT INTO edges (left_entity_id, right_entity_id, relationship_type)
+			SELECT unnest($1::bigint[]), unnest($2::bigint[]), unnest($3::text[])
+			ON CONFLICT (left_entity_id, right_entity_id, relationship_type) DO NOTHING
+		`
+
+		_, err = tx.Exec(ctx, edgeSQL, leftIDs, rightIDs, relationshipTypes)
 		if err != nil {
-			return fmt.Errorf("failed to bulk insert edges: %w", err)
+			return fmt.Errorf("failed to insert edges: %w", err)
 		}
 	}
 
-	temporalRows := [][]any{}
+	// 4. TEMPORAL PROPERTIES - INSERIR TUDO DE UMA VEZ
+	temporalRows := make([][]any, 0, len(bundles)*5)
 	for _, b := range bundles {
 		for _, p := range b.TemporalProps {
 			if eid, ok := entityMap[p.EntityRef]; ok {
 				temporalRows = append(temporalRows, []any{
-					eid,
-					p.Key,
-					p.Value,
-					p.Granularity,
-					p.ReferenceDate,
-					p.ReferenceMonth,
+					eid, p.Key, p.Value, p.Granularity,
+					p.ReferenceDate, p.ReferenceMonth,
 					makeIdempotencyKey(eid, p.Key, p.Granularity, &p.ReferenceDate, &p.ReferenceMonth),
 				})
 			}
 		}
 	}
+
 	if len(temporalRows) > 0 {
-		if err := copyTemporalTEXT(ctx, tx, temporalRows); err != nil {
-			log.Printf("bulkInsert temporal copy error: %v", err)
-			return err
+		entityIDs := make([]int64, len(temporalRows))
+		keys := make([]string, len(temporalRows))
+		values := make([]string, len(temporalRows))
+		granularities := make([]string, len(temporalRows))
+		referenceDates := make([]time.Time, len(temporalRows))
+		referenceMonths := make([]time.Time, len(temporalRows))
+		idempotencyKeys := make([]string, len(temporalRows))
+
+		for i, r := range temporalRows {
+			entityIDs[i] = r[0].(int64)
+			keys[i] = toString(r[1])
+			values[i] = string(r[2].(json.RawMessage))
+			granularities[i] = toString(r[3])
+			referenceDates[i] = r[4].(time.Time)
+			referenceMonths[i] = r[5].(time.Time)
+			idempotencyKeys[i] = toString(r[6])
+		}
+
+		insertSQL := `
+			INSERT INTO temporal_properties (entity_id, key, value, granularity, reference_date, reference_month, idempotency_key) 
+			SELECT unnest($1::bigint[]), unnest($2::text[]), unnest($3::jsonb[]), unnest($4::text[]), unnest($5::timestamptz[]), unnest($6::date[]), unnest($7::text[])
+		`
+
+		_, err := tx.Exec(ctx, insertSQL, entityIDs, keys, values, granularities, referenceDates, referenceMonths, idempotencyKeys)
+		if err != nil {
+			return fmt.Errorf("failed to insert temporal properties: %w", err)
 		}
 	}
 
 	return tx.Commit(ctx)
 }
 
-func copyTemporalTEXT(ctx context.Context, tx pgx.Tx, rows [][]any) error {
-	var sb strings.Builder
+func copyTemporalOptimized(ctx context.Context, tx pgx.Tx, rows [][]any) error {
+	// Usar buffer para melhor performance
+	var buf strings.Builder
+	buf.Grow(len(rows) * 200) // Pré-alocar memória
+
 	for _, r := range rows {
 		eid := fmt.Sprintf("%v", r[0])
 		key := toString(r[1])
 		val := string(r[2].(json.RawMessage))
 		gran := toString(r[3])
-		refDate := ""
+
+		refDate := "\\N" // NULL em COPY format
 		if r[4] != nil {
 			refDate = r[4].(time.Time).Format("2006-01-02")
 		}
-		refMonth := ""
+
+		refMonth := "\\N"
 		if r[5] != nil {
 			refMonth = r[5].(time.Time).Format("2006-01-02")
 		}
+
 		idem := toString(r[6])
 
-		sb.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		// Usar fmt.Fprintf para melhor performance
+		fmt.Fprintf(&buf, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			copyEscape(eid),
 			copyEscape(key),
-			val,
+			copyEscape(val),
 			copyEscape(gran),
 			copyEscape(refDate),
 			copyEscape(refMonth),
-			copyEscape(idem)))
+			copyEscape(idem))
+
 	}
 
 	sql := `COPY temporal_properties (entity_id, key, value, granularity, reference_date, reference_month, idempotency_key) FROM STDIN WITH (FORMAT text)`
-	_, err := tx.Conn().PgConn().CopyFrom(ctx, strings.NewReader(sb.String()), sql)
+	_, err := tx.Conn().PgConn().CopyFrom(ctx, strings.NewReader(buf.String()), sql)
 	return err
 }
 
@@ -323,18 +474,21 @@ func getColumn(rows [][]any, col int) []any {
 	}
 	return out
 }
+
 func toString(v any) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
 	return fmt.Sprintf("%v", v)
 }
+
 func toJSONString(v any) string {
 	if b, ok := v.([]byte); ok {
 		return string(b)
 	}
 	return fmt.Sprintf("%v", v)
 }
+
 func copyEscape(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\t", "\\t")
@@ -400,8 +554,20 @@ func generateFakeUserData(org entities.Entity, monthsToGenerate int, monthsPerce
 		affiliation := entities.Entity{Type: "affiliation", Reference: "aff-" + faker.UUIDHyphenated(), Properties: affPropsBytes}
 		affiliations = append(affiliations, affiliation)
 
-		// Gerar POS para afiliação
-		if monthlyVolume, ok := affProps["monthly_volume"].(int); ok && monthlyVolume > 500000 {
+		// Gerar POS para afiliação - CORRIGIDO
+		var monthlyVolume float64
+		switch v := affProps["monthly_volume"].(type) {
+		case int:
+			monthlyVolume = float64(v)
+		case float64:
+			monthlyVolume = v
+		case int64:
+			monthlyVolume = float64(v)
+		default:
+			monthlyVolume = 0
+		}
+
+		if monthlyVolume > 500000 {
 			numPos := rand.Intn(2) + 1
 			for j := 0; j < numPos; j++ {
 				posProps := map[string]string{
@@ -414,19 +580,52 @@ func generateFakeUserData(org entities.Entity, monthsToGenerate int, monthsPerce
 		}
 	}
 
-	// 3. Gerar Propriedades Temporais (com lógica de negócio)
+	// 3. Gerar Propriedades Temporais (EVITANDO DUPLICATAS)
 	var temporalProps []SeederTemporalProperty
 	now := time.Now().UTC()
 	monthsToCreate := int(float64(monthsToGenerate) * (monthsPercentage / 100.0))
 
-	// TPV Mensal para cada afiliação
+	// Usar um map para evitar duplicatas
+	generatedKeys := make(map[string]bool)
+
+	// TPV Mensal para cada afiliação - CORRIGIDO
 	for _, aff := range affiliations {
 		var affProps map[string]interface{}
 		json.Unmarshal(aff.Properties, &affProps)
-		baseTPV := affProps["monthly_volume"].(float64)
+
+		// CORREÇÃO: tratar tanto int quanto float64
+		var baseTPV float64
+		switch v := affProps["monthly_volume"].(type) {
+		case int:
+			baseTPV = float64(v)
+		case float64:
+			baseTPV = v
+		case int64:
+			baseTPV = float64(v)
+		default:
+			// fallback - tentar converter para float64
+			if vol, ok := affProps["monthly_volume"]; ok {
+				if volInt, err := json.Number(fmt.Sprintf("%v", vol)).Float64(); err == nil {
+					baseTPV = volInt
+				} else {
+					baseTPV = 100000 // valor padrão se falhar
+				}
+			} else {
+				baseTPV = 100000 // valor padrão
+			}
+		}
 
 		for i := monthsToGenerate - 1; i >= monthsToGenerate-monthsToCreate; i-- {
 			referenceMonth := time.Date(now.Year(), now.Month()-time.Month(i), 1, 0, 0, 0, 0, time.UTC)
+
+			// Criar uma chave única para verificar duplicatas ANTES de gerar a entidade
+			checkKey := fmt.Sprintf("%s:tpv:month:%s", aff.Reference, referenceMonth.Format("2006-01"))
+
+			// PULAR se já foi gerado
+			if generatedKeys[checkKey] {
+				continue
+			}
+			generatedKeys[checkKey] = true
 
 			// Fatores de crescimento e sazonalidade
 			timeFactor := 1.0 - (float64(i)/float64(monthsToGenerate))*0.3 // Crescimento de 30% no período
@@ -440,11 +639,9 @@ func generateFakeUserData(org entities.Entity, monthsToGenerate int, monthsPerce
 			tpvItems := generateTPVItems(monthTPV, pixWeight)
 			tpvValueBytes, _ := json.Marshal(map[string]interface{}{"items": tpvItems})
 
-			// Definir campos corretos
-			daysInMonth := time.Date(referenceMonth.Year(), referenceMonth.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
-			randomDay := rand.Intn(daysInMonth) + 1
-			referenceDate := time.Date(referenceMonth.Year(), referenceMonth.Month(), randomDay, rand.Intn(24), rand.Intn(60), rand.Intn(60), 0, time.UTC)
-			idempotency := ""
+			// IMPORTANTE: usar dia fixo do mês para evitar variação na idempotency_key
+			// Usar o último dia do mês para reference_date
+			lastDay := time.Date(referenceMonth.Year(), referenceMonth.Month()+1, 0, 23, 59, 59, 0, time.UTC)
 
 			temporalProps = append(temporalProps, SeederTemporalProperty{
 				EntityRef:      aff.Reference,
@@ -452,46 +649,63 @@ func generateFakeUserData(org entities.Entity, monthsToGenerate int, monthsPerce
 				Value:          tpvValueBytes,
 				Granularity:    "month",
 				ReferenceMonth: referenceMonth,
-				ReferenceDate:  referenceDate,
-				IdempotencyKey: idempotency,
+				ReferenceDate:  lastDay, // Data consistente
+				IdempotencyKey: "",      // será gerado no makeIdempotencyKey
 			})
 		}
 	}
 
-	// Propriedades da Organização
+	// Propriedades da Organização (GARANTINDO UNICIDADE)
 	balanceValue, _ := json.Marshal(map[string]interface{}{"available": rand.Intn(500000), "currency": "BRL"})
 	creditLineValue, _ := json.Marshal(map[string]interface{}{"total_limit": rand.Intn(1000000), "available_limit": rand.Intn(500000)})
 	kycStatusValue, _ := json.Marshal(map[string]interface{}{"approved": true, "verification_level": "complete", "last_updated": now.AddDate(0, -rand.Intn(6), -rand.Intn(28)).Format(time.RFC3339)})
 
-	temporalProps = append(temporalProps,
-		SeederTemporalProperty{
+	currentMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	// Verificar unicidade antes de adicionar
+	orgBalanceKey := fmt.Sprintf("%s:account_balance:instant:%s", org.Reference, now.Format("2006-01-02T15:04:05.000"))
+	orgCreditKey := fmt.Sprintf("%s:credit_line:instant:%s", org.Reference, now.Format("2006-01-02T15:04:05.000"))
+
+	if !generatedKeys[orgBalanceKey] {
+		generatedKeys[orgBalanceKey] = true
+		temporalProps = append(temporalProps, SeederTemporalProperty{
 			EntityRef:      org.Reference,
 			Key:            "account_balance",
 			Value:          balanceValue,
 			Granularity:    "instant",
 			ReferenceDate:  now,
-			ReferenceMonth: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC),
-			IdempotencyKey: "", // será gerado depois
-		},
-		SeederTemporalProperty{
+			ReferenceMonth: currentMonth,
+			IdempotencyKey: "",
+		})
+	}
+
+	if !generatedKeys[orgCreditKey] {
+		generatedKeys[orgCreditKey] = true
+		temporalProps = append(temporalProps, SeederTemporalProperty{
 			EntityRef:      org.Reference,
 			Key:            "credit_line",
 			Value:          creditLineValue,
 			Granularity:    "instant",
 			ReferenceDate:  now,
-			ReferenceMonth: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC),
+			ReferenceMonth: currentMonth,
 			IdempotencyKey: "",
-		},
-		SeederTemporalProperty{
+		})
+	}
+
+	// KYC para usuário (único por usuário)
+	userKycKey := fmt.Sprintf("%s:kyc_status:instant:%s", user.Reference, now.Format("2006-01-02T15:04:05.000"))
+	if !generatedKeys[userKycKey] {
+		generatedKeys[userKycKey] = true
+		temporalProps = append(temporalProps, SeederTemporalProperty{
 			EntityRef:      user.Reference,
 			Key:            "kyc_status",
 			Value:          kycStatusValue,
 			Granularity:    "instant",
 			ReferenceDate:  now,
-			ReferenceMonth: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC),
+			ReferenceMonth: currentMonth,
 			IdempotencyKey: "",
-		},
-	)
+		})
+	}
 
 	return user, affiliations, posDevices, temporalProps
 }
@@ -515,7 +729,6 @@ func generateTPVItems(monthTPV, pixWeight float64) []map[string]interface{} {
 	creditWeight := 0.5 * (1 - pixWeight)
 	debitWeight := 0.3 * (1 - pixWeight)
 	voucherWeight := 0.1 * (1 - pixWeight)
-	// boletoWeight := 0.1 * (1 - pixWeight)
 
 	// Crédito
 	creditTPV := remainingTPV * creditWeight
@@ -552,7 +765,7 @@ func generateTPVItems(monthTPV, pixWeight float64) []map[string]interface{} {
 	})
 	remainingTPV -= voucherTPV
 
-	// Boleto
+	// Boleto (restante)
 	if remainingTPV > 0 {
 		items = append(items, map[string]interface{}{
 			"payment_method":    "boleto",
@@ -574,15 +787,19 @@ func max(a, b int) int {
 func makeIdempotencyKey(entityID int64, key, granularity string, refDate, refMonth *time.Time) string {
 	switch granularity {
 	case "instant":
+		// CORRIGIDO: usar milissegundos (.MS) igual ao SQL
 		return fmt.Sprintf("%d:%s:%s:%s", entityID, key, granularity, refDate.UTC().Format("2006-01-02T15:04:05.000"))
 	case "day":
 		return fmt.Sprintf("%d:%s:%s:%s", entityID, key, granularity, refDate.UTC().Format("2006-01-02"))
 	case "week":
+		// CORRIGIDO: usar formato IYYY-WIW igual ao SQL
 		year, week := refDate.UTC().ISOWeek()
-		return fmt.Sprintf("%d:%s:%s:%d-W%d", entityID, key, granularity, year, week)
+		return fmt.Sprintf("%d:%s:%s:%d-W%02d", entityID, key, granularity, year, week)
 	case "month":
+		// CORRIGIDO: usar refMonth ao invés de refDate
 		return fmt.Sprintf("%d:%s:%s:%s", entityID, key, granularity, refMonth.UTC().Format("2006-01"))
 	case "quarter":
+		// CORRIGIDO: calcular quarter corretamente
 		q := (int(refDate.Month())-1)/3 + 1
 		return fmt.Sprintf("%d:%s:%s:%d-Q%d", entityID, key, granularity, refDate.Year(), q)
 	case "year":

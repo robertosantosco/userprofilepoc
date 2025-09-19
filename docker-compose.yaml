@@ -194,13 +194,15 @@ services:
     ports:
       - "5540:5540"
     restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=redis://default@redis-node-1:7001
     volumes:
       - redis_insight_data:/data
     depends_on:
       - redis-node-1
       - redis-node-2
       - redis-node-3
-
+  
 volumes:
   postgres_primary_data:
    driver: local

@@ -10,3 +10,13 @@ EOF
 
 - mudar key para type no temporal
 - testar mandar uma parte só do json no update para ver se atualzia e n perde
+
+
+----------------------------------------------------------------------------
+# 1. Parar completamente as réplicas
+docker-compose stop postgres-replica-1 postgres-replica-2
+docker rm -f user-profile-replica-1-db user-profile-replica-2-db
+
+# 2. Verificar e remover volumes
+docker volume ls | grep replica
+docker volume rm userprofilepoc_postgres_replica_1_data userprofilepoc_postgres_replica_2_data
