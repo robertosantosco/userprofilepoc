@@ -28,7 +28,7 @@ export let options = {
     { duration: '2m', target: 100 },   // 0-100 users em 2 min
     { duration: '3m', target: 500 },   // 100-500 users em 3 min  
     { duration: '5m', target: 1000 },  // 500-1000 users em 5 min
-    { duration: '10m', target: 2000 }, // 1000-2000 users em 10 min (pico)
+    // { duration: '10m', target: 2000 }, // 1000-2000 users em 10 min (pico)
     { duration: '5m', target: 1000 },  // Reduzir para 1000
     { duration: '3m', target: 0 },     // Ramp-down
   ],

@@ -30,4 +30,5 @@ docker logs -f user-profile-replica-1-db
 
 ------------------------------------------------------------------------------
 limpa todos os dados do Redis:
+docker exec -it userprofilepoc-redis-node-1-1 redis-cli -c -p 7001
 FLUSHALL
