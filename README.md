@@ -20,3 +20,14 @@ docker rm -f user-profile-replica-1-db user-profile-replica-2-db
 # 2. Verificar e remover volumes
 docker volume ls | grep replica
 docker volume rm userprofilepoc_postgres_replica_1_data userprofilepoc_postgres_replica_2_data
+
+# 3. Inicie as novas replicas
+docker-compose up -d postgres-replica-1 postgres-replica-2
+
+# 4. Verifique nos logs se esta sincronizando os WAL
+docker logs -f user-profile-replica-1-db
+
+
+------------------------------------------------------------------------------
+limpa todos os dados do Redis:
+FLUSHALL

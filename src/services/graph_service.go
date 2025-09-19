@@ -25,10 +25,7 @@ func NewGraphService(
 }
 
 // obtem o nodeTree pelo ID da entidade raiz.
-func (gs *GraphService) GetTreeByEntityID(ctx context.Context, EntityID int64) (*domain.NodeTree, error) {
-
-	depthLimit := 5
-	startTime := time.Date(2025, time.September, 1, 0, 0, 0, 0, time.UTC)
+func (gs *GraphService) GetTreeByEntityID(ctx context.Context, EntityID int64, depthLimit int, startTime time.Time) (*domain.NodeTree, error) {
 
 	condition := repositories.FindCondition{
 		Field:    "id",
@@ -52,10 +49,7 @@ func (gs *GraphService) GetTreeByEntityID(ctx context.Context, EntityID int64) (
 }
 
 // obtem o nodeTree pela propriedade da entidade raiz.
-func (gs *GraphService) GetTreeByEntityProperty(ctx context.Context, propName string, propValue string) (*domain.NodeTree, error) {
-
-	depthLimit := 5
-	startTime := time.Date(2025, time.September, 1, 0, 0, 0, 0, time.UTC)
+func (gs *GraphService) GetTreeByEntityProperty(ctx context.Context, propName string, propValue string, depthLimit int, startTime time.Time) (*domain.NodeTree, error) {
 
 	condition := repositories.FindCondition{
 		Field:    propName,

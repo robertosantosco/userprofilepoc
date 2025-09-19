@@ -81,15 +81,22 @@ function getRandomScenario() {
 function buildUrl(scenario, user) {
   const baseUrl = `${BASE_URL}/${SCENARIO_CONFIG[scenario].endpoint}`;
   
+  // ADIÇÃO: Query parameters aleatórios para cache miss
+  const depthLimit = Math.floor(Math.random() * 10) + 1; // 1-10
+  const startTimes = ['2025-09-01', '2025-08-01', '2025-07-01', '2025-06-01', '2025-05-01', '2025-04-01'];
+  const startTime = startTimes[Math.floor(Math.random() * startTimes.length)];
+  
+  const queryParams = `?depthLimit=${depthLimit}&startTime=${startTime}`;
+  
   switch (scenario) {
     case 'BY_ID':
-      return `${baseUrl}/${user.id}`;
+      return `${baseUrl}/${user.id}${queryParams}`;
     
     case 'BY_EMAIL':
-      return `${baseUrl}/${user.email}`;
+      return `${baseUrl}/${user.email}${queryParams}`;
     
     case 'BY_CPF':
-      return `${baseUrl}/${user.cpf}`;
+      return `${baseUrl}/${user.cpf}${queryParams}`;
     
     default:
       throw new Error(`Unknown scenario: ${scenario}`);
@@ -155,21 +162,11 @@ function executeRequest(url, scenario, user) {
 
 // Função para setup inicial
 export function setup() {
-  console.log('🚀 Starting User Profile API Load Test');
+  console.log('🚀 Starting User Profile API Load Test (Cache Busting Edition)');
   console.log(`👥 Testing with ${users.length} users from CSV`);
   console.log(`📊 Scenarios: ID(${SCENARIO_CONFIG.BY_ID.weight*100}%) Email(${SCENARIO_CONFIG.BY_EMAIL.weight*100}%) CPF(${SCENARIO_CONFIG.BY_CPF.weight*100}%)`);
   console.log(`⏱️  Duration: ~30 minutes`);
-  
-  // Health check opcional - descomente se implementar
-  /*
-  console.log('🔍 Checking API health...');
-  const healthCheck = http.get(`${BASE_URL}/health`);
-  if (healthCheck.status !== 200) {
-    console.error('❌ API health check failed');
-    throw new Error('API not healthy');
-  }
-  console.log('✅ API health check passed');
-  */
+  console.log(`🔥 NEW: Random depthLimit (1-10) + startTime parameters to break cache`);
   
   // Teste rápido com um usuário para validar endpoints
   console.log('🧪 Testing endpoints with sample user...');
@@ -195,5 +192,6 @@ export function teardown(data) {
   const duration = (Date.now() - data.startTime) / 1000;
   console.log(`🏁 Load test completed in ${duration.toFixed(1)} seconds`);
   console.log('📈 Check the summary for detailed metrics');
-  console.log('💡 Tip: Use --out json=results.json to export detailed results');
+  console.log('🔥 Expected: MUCH lower cache hits due to query parameter variations');
+  console.log('💡 Compare with previous test results to see cache impact');
 }

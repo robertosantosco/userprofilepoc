@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 	"userprofilepoc/src/domain"
 )
 
@@ -23,7 +24,44 @@ func (s *Server) GetGraphByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entityTree, err := s.graphService.GetTreeByEntityID(r.Context(), entityID)
+	depthLimitStr := r.URL.Query().Get("depthLimit")
+	depthLimit := 5 // Default value
+	if depthLimitStr != "" {
+		var err error
+		depthLimit, err = strconv.Atoi(depthLimitStr)
+		if err != nil {
+			http.Error(w, "Invalid depthLimit format", http.StatusBadRequest)
+			return
+		}
+	}
+
+	startTimeStr := r.URL.Query().Get("startTime")
+	var startTime time.Time
+	if startTimeStr == "" {
+		now := time.Now()
+		startTime = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	} else {
+		var err error
+		startTime, err = time.Parse("2006-01-02", startTimeStr)
+		if err != nil {
+			http.Error(w, "Invalid startTime format. Use 'YYYY-MM-DD'", http.StatusBadRequest)
+			return
+		}
+		startTime = time.Date(startTime.Year(), startTime.Month(), 1, 0, 0, 0, 0, startTime.Location())
+	}
+
+	now := time.Now()
+	if startTime.After(now) {
+		http.Error(w, "startTime cannot be in the future", http.StatusBadRequest)
+		return
+	}
+
+	if startTime.Before(now.AddDate(-1, 0, 0)) {
+		http.Error(w, "startTime cannot be older than 12 months", http.StatusBadRequest)
+		return
+	}
+
+	entityTree, err := s.graphService.GetTreeByEntityID(r.Context(), entityID, depthLimit, startTime)
 	if err != nil {
 		if errors.Is(err, domain.ErrEntityNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
@@ -59,7 +97,44 @@ func (s *Server) GetGraphByProperty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entityTree, err := s.graphService.GetTreeByEntityProperty(r.Context(), prop, value)
+	depthLimitStr := r.URL.Query().Get("depthLimit")
+	depthLimit := 5 // Default value
+	if depthLimitStr != "" {
+		var err error
+		depthLimit, err = strconv.Atoi(depthLimitStr)
+		if err != nil {
+			http.Error(w, "Invalid depthLimit format", http.StatusBadRequest)
+			return
+		}
+	}
+
+	startTimeStr := r.URL.Query().Get("startTime")
+	var startTime time.Time
+	if startTimeStr == "" {
+		now := time.Now()
+		startTime = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	} else {
+		var err error
+		startTime, err = time.Parse("2006-01-02", startTimeStr)
+		if err != nil {
+			http.Error(w, "Invalid startTime format. Use 'YYYY-MM-DD'", http.StatusBadRequest)
+			return
+		}
+		startTime = time.Date(startTime.Year(), startTime.Month(), 1, 0, 0, 0, 0, startTime.Location())
+	}
+
+	now := time.Now()
+	if startTime.After(now) {
+		http.Error(w, "startTime cannot be in the future", http.StatusBadRequest)
+		return
+	}
+
+	if startTime.Before(now.AddDate(-1, 0, 0)) {
+		http.Error(w, "startTime cannot be older than 12 months", http.StatusBadRequest)
+		return
+	}
+
+	entityTree, err := s.graphService.GetTreeByEntityProperty(r.Context(), prop, value, depthLimit, startTime)
 	if err != nil {
 		if errors.Is(err, domain.ErrEntityNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
