@@ -10,6 +10,9 @@ run-entities-edges-consumer:
 run-entity-properties-consumer:
 	go run ./src/cmd/entity-properties-consumer/main.go
 
+run-temporal-data-consumer:
+	go run ./src/cmd/temporal-data-consumer/main.go
+
 run-datagen-postgres:
 	go run -tags datagen_postgres datagen_postgres.go -clients=7000000 -bulk-size=500 -consumers=10 -months=12 -users-per-org=2
 
@@ -18,3 +21,6 @@ run-datagen-kafka-entities-edges:
 
 run-datagen-entity-properties:
 	go run -tags datagen_properties datagen_kafka_entity_properties.go --count=-1 --batch-size=1000 --topic=flink.agg.user-profile.entities.properties --brokers=localhost:9092 --group-id=userprofile-entity-properties --delay-ms=100 --conflict-rate=0.2
+
+run-datagen-temporal-data:
+	go run -tags datagen_temporal datagen_kafka_temporal_data.go --count=-1 --batch-size=1000 --topic=flink.agg.user-profile.entities.temporal-properties --brokers=localhost:9092 --group-id=userprofile-temporal-data --delay-ms=100 --entities=100 --days-back=30 --granularities=day,month
