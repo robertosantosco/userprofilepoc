@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS entities (
 );
 
 -- Índice GIN para permitir buscas eficientes dentro do JSONB de propriedades.
-CREATE INDEX idx_entities_properties_path_ops ON entities USING GIN (properties jsonb_path_ops);
+CREATE INDEX idx_entities_properties_path_ops ON entities USING GIN (properties jsonb_path_ops) WHERE properties IS NOT NULL;;
 CREATE INDEX idx_entities_reference_lookup ON entities (reference) INCLUDE (id, type);
 
 -- Tabela de "Arestas" do grafo. Define os relacionamentos.
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS edges (
 
 -- Índices para otimizar a navegação no grafo.
 CREATE INDEX idx_edges_left_relationship_right ON edges (left_entity_id, relationship_type) INCLUDE (right_entity_id);
-CREATE INDEX IF NOT EXISTS idx_edges_metadata  ON edges USING GIN(metadata jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS idx_edges_metadata  ON edges USING GIN(metadata jsonb_path_ops) WHERE metadata IS NOT NULL;;
 
 -- 3) TABELA TEMPORAL PARTICIONADA
 -- ---------------------------------------------------------------------

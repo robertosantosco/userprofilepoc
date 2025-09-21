@@ -1,3 +1,6 @@
+//go:build datagen_postgres
+// +build datagen_postgres
+
 package main
 
 import (
