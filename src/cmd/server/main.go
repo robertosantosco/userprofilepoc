@@ -4,15 +4,14 @@ import (
 	"context"
 	"log"
 	"log/slog"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
+	"userprofilepoc/src/adapters/http"
 	"userprofilepoc/src/helper/env"
 	"userprofilepoc/src/infra/postgres"
 	"userprofilepoc/src/infra/redis"
 	"userprofilepoc/src/repositories"
-	"userprofilepoc/src/server"
 	"userprofilepoc/src/services"
 
 	"go.uber.org/fx"
@@ -135,7 +134,7 @@ func newServer(
 	logger *slog.Logger,
 	graphService *services.GraphService,
 	temporalDataService *services.TemporalDataService,
-) *server.Server {
+) *http.Server {
 
 	port := 8888 // default value
 	if portStr := os.Getenv("SERVER_ADDR"); portStr != "" {
@@ -144,18 +143,18 @@ func newServer(
 		}
 	}
 
-	server := server.NewServer(logger, port, graphService, temporalDataService)
+	server := http.NewServer(logger, port, graphService, temporalDataService)
 
 	return server
 }
 
 // registerServerHooks registers lifecycle hooks for the HTTP server
-func registerServerHooks(lc fx.Lifecycle, srv *server.Server) {
+func registerServerHooks(lc fx.Lifecycle, srv *http.Server) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			// Start server in a separate goroutine
 			go func() {
-				if err := srv.Start(); err != nil && err != http.ErrServerClosed {
+				if err := srv.Start(); err != nil {
 					log.Fatalf("Server failed: %v", err)
 				}
 			}()
