@@ -19,6 +19,7 @@ type KafkaClient struct {
 
 type Message struct {
 	Key      string
+	Headers  map[string]string
 	Value    []byte
 	internal *sarama.ConsumerMessage
 }
@@ -110,6 +111,19 @@ func (k *KafkaClient) Producer(messages []Message, topic string) error {
 		kafkaMessages[i] = &sarama.ProducerMessage{
 			Topic: topic,
 			Key:   sarama.StringEncoder(msg.Key),
+			Headers: func() []sarama.RecordHeader {
+				if len(msg.Headers) == 0 {
+					return nil
+				}
+				headers := make([]sarama.RecordHeader, 0, len(msg.Headers))
+				for k, v := range msg.Headers {
+					headers = append(headers, sarama.RecordHeader{
+						Key:   []byte(k),
+						Value: []byte(v),
+					})
+				}
+				return headers
+			}(),
 			Value: sarama.ByteEncoder(msg.Value),
 		}
 	}

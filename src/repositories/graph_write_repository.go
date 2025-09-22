@@ -67,8 +67,8 @@ func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.Syn
 		WITH
 		-- CTE 1: Upsert das entidades a partir dos dados na tabela temporária.
 		upserted_entities AS (
-			INSERT INTO entities 
-				(type, reference, properties)
+			INSERT INTO 
+				entities (type, reference, properties)
 			SELECT DISTINCT 
 				entity_type, entity_reference, entity_properties
 			FROM 
@@ -76,8 +76,10 @@ func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.Syn
 			WHERE 
 				entity_reference IS NOT NULL
 			ON CONFLICT (type, reference) DO UPDATE SET
-				properties = entities.properties || excluded.properties,
+				properties = COALESCE(entities.properties, '{}'::jsonb) || excluded.properties,
 				updated_at = NOW()
+			WHERE
+				COALESCE(entities.properties, '{}'::jsonb) || excluded.properties IS DISTINCT FROM entities.properties
 			RETURNING 
 				id, 
 				reference
@@ -119,8 +121,10 @@ func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.Syn
 				left_entity_id, right_entity_id, relationship_type 
 			FROM 
 				edges_to_create
-			ON CONFLICT 
-				(left_entity_id, right_entity_id, relationship_type) DO NOTHING
+			ON CONFLICT (left_entity_id, right_entity_id) DO UPDATE SET
+				relationship_type = excluded.relationship_type,
+				updated_at = NOW()
+			WHERE edges.relationship_type IS DISTINCT FROM excluded.relationship_type
 		)
 		
 		SELECT DISTINCT id FROM entity_ids;

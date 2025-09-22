@@ -13,8 +13,11 @@ run-entity-properties-consumer:
 run-temporal-data-consumer:
 	go run ./src/cmd/temporal-data-consumer/main.go
 
+run-cdc-transformer:
+	go run ./src/cmd/cdc-transformer/main.go
+
 run-datagen-postgres:
-	go run -tags datagen_postgres datagen_postgres.go -clients=7000000 -bulk-size=500 -consumers=10 -months=12 -users-per-org=2
+	go run -tags datagen_postgres datagen_postgres.go -clients=10000 -bulk-size=500 -consumers=10 -months=12 -users-per-org=2
 
 run-datagen-kafka-entities-edges:
 	go run -tags datagen_kafka_entities_edges datagen_kafka_entities_edges.go --count=-1 --batch-size=5000 --topic=flink.agg.user-profile.entities --brokers=localhost:9092 --group-id=userprofile-entities-edges --delay-ms=1000
@@ -24,3 +27,6 @@ run-datagen-entity-properties:
 
 run-datagen-temporal-data:
 	go run -tags datagen_temporal datagen_kafka_temporal_data.go --count=-1 --batch-size=1000 --topic=flink.agg.user-profile.entities.temporal-properties --brokers=localhost:9092 --group-id=userprofile-temporal-data --delay-ms=100 --entities=100 --days-back=30 --granularities=day,month
+
+run-domain-events-example:
+	go run -tags example examples/domain_event_consumer_example.go --brokers=localhost:9092 --topic=user-profile.domain-events.v1 --group-id=example-consumer

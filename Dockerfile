@@ -52,7 +52,17 @@ RUN echo "#!/bin/bash" > /docker-entrypoint-initdb.d/01-setup-replication.sh && 
     echo "chown postgres:postgres /var/lib/postgresql/data/pg_hba.conf" >> /docker-entrypoint-initdb.d/01-setup-replication.sh && \
     chmod +x /docker-entrypoint-initdb.d/01-setup-replication.sh
 
-# 7. Configurações padrão do PostgreSQL para replicação
+# 7. Script para executar schema.sql se existir
+RUN echo "#!/bin/bash" > /docker-entrypoint-initdb.d/02-run-schema.sh && \
+    echo "set -e" >> /docker-entrypoint-initdb.d/02-run-schema.sh && \
+    echo "if [ -f /tmp/schema.sql ]; then" >> /docker-entrypoint-initdb.d/02-run-schema.sh && \
+    echo "    echo 'Executing schema.sql...'" >> /docker-entrypoint-initdb.d/02-run-schema.sh && \
+    echo "    psql -v ON_ERROR_STOP=1 --username \"\$POSTGRES_USER\" --dbname \"\$POSTGRES_DB\" -f /tmp/schema.sql" >> /docker-entrypoint-initdb.d/02-run-schema.sh && \
+    echo "    echo 'Schema.sql executed successfully'" >> /docker-entrypoint-initdb.d/02-run-schema.sh && \
+    echo "fi" >> /docker-entrypoint-initdb.d/02-run-schema.sh && \
+    chmod +x /docker-entrypoint-initdb.d/02-run-schema.sh
+
+# 8. Configurações padrão do PostgreSQL para replicação
 ENV POSTGRES_INITDB_ARGS="--data-checksums"
 
 RUN mkdir -p /var/lib/postgresql/archive && chown -R postgres:postgres /var/lib/postgresql/archive

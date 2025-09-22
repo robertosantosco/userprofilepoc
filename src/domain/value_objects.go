@@ -84,3 +84,63 @@ type TemporalDataPointDTO struct {
 type SyncTemporalPropertyRequest struct {
 	DataPoints []TemporalDataPointDTO `json:"data_points"`
 }
+
+// ############################################################
+// #####                DOMAIN EVENTS                ##########
+// ############################################################
+
+// DomainEvent represents a domain event emitted when data changes
+type DomainEvent struct {
+	IdempotencyKey string          `json:"event_idempotency_key"`
+	EventTimestamp time.Time       `json:"event_timestamp"`
+	Data           DomainEventData `json:"data"`
+}
+
+// DomainEventData contains the actual event data in consistent format
+type DomainEventData struct {
+	Type                  string                  `json:"type,omitempty"` // optional for temporal events
+	Reference             string                  `json:"reference"`
+	TargetEntityReference *string                 `json:"target_entity_reference,omitempty"` // for relationships only
+	Properties            map[string]PropertyPair `json:"properties"`
+}
+
+// PropertyPair represents the old/new value pair for any property
+type PropertyPair struct {
+	Old interface{} `json:"old"`
+	New interface{} `json:"new"`
+}
+
+// EventHeaders for Kafka message headers to enable filtering
+type EventHeaders struct {
+	EntityType    string `header:"entity_type"`
+	DataType      string `header:"data_type"`
+	Operation     string `header:"operation"`
+	SourceService string `header:"source_service"`
+	SchemaVersion string `header:"schema_version"`
+	FieldsChanged string `header:"fields_changed,omitempty"`
+	TableName     string `header:"table_name"`
+}
+
+// Constants for event types and operations
+const (
+	// Event Types
+	EventTypeEntityCreated           = "entity_created"
+	EventTypeEntityPropertiesUpdated = "entity_properties_updated"
+	EventTypeEntityDeleted           = "entity_deleted"
+	EventTypeRelationshipCreated     = "relationship_created"
+	EventTypeRelationshipUpdated     = "relationship_updated"
+	EventTypeRelationshipDeleted     = "relationship_deleted"
+	EventTypeTemporalDataCreated     = "temporal_data_created"
+	EventTypeTemporalDataUpdated     = "temporal_data_updated"
+	EventTypeTemporalDataDeleted     = "temporal_data_deleted"
+
+	// CDC Operations (for mapping)
+	OperationInsert = "INSERT"
+	OperationUpdate = "UPDATE"
+	OperationDelete = "DELETE"
+
+	// Tables
+	TableEntities           = "entities"
+	TableEdges              = "edges"
+	TableTemporalProperties = "temporal_properties"
+)

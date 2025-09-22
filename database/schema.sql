@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS edges (
   updated_at           timestamptz NOT NULL DEFAULT now(),
   
   -- Garante que um relacionamento do mesmo tipo entre duas entidades seja único.
-  CONSTRAINT uq_edges_relationship UNIQUE (left_entity_id, right_entity_id, relationship_type)
+  CONSTRAINT uq_edges_relationship UNIQUE (left_entity_id, right_entity_id)
 );
 
 -- Índices para otimizar a navegação no grafo.
@@ -74,6 +74,11 @@ CREATE INDEX idx_temporal_entity_date_key ON temporal_properties (entity_id, ref
 -- Tabela TEMPLATE: Serve como modelo para as novas partições.
 CREATE TABLE IF NOT EXISTS temporal_properties_template (LIKE temporal_properties INCLUDING ALL);
 
+-- Configura REPLICA IDENTITY para FULL em todas as tabelas para suportar CDC no RDS.
+ALTER TABLE entities REPLICA IDENTITY FULL;
+ALTER TABLE edges REPLICA IDENTITY FULL;
+ALTER TABLE temporal_properties REPLICA IDENTITY FULL;
+
 -- 4) CONFIGURAÇÃO DO PG_PARTMAN
 -- ---------------------------------------------------------------------
 
@@ -98,8 +103,3 @@ WHERE
   parent_table = 'public.temporal_properties';
 
 SELECT public.run_maintenance(p_parent_table := 'public.temporal_properties');
-
--- Concede permissões necessárias.
-GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres;
-GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO postgres;

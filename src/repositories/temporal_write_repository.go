@@ -80,20 +80,37 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 
 	query := `
 		WITH
-			-- CTE 1: Faz o "upsert" das entidades e retorna os IDs tanto
-			entity_ids AS (
-				INSERT INTO
+			-- CTE 1: Busca entidades existentes e insere apenas as novas
+			existing_entities AS (
+				SELECT 
+					e.id, 
+					e.reference
+				FROM 
+					entities e
+				JOIN 
+					(SELECT DISTINCT entity_type, entity_reference FROM temp_datapoints) td
+				ON 
+					e.type = td.entity_type 
+					AND e.reference = td.entity_reference
+			),
+			new_entities AS (
+				INSERT INTO 
 					entities (type, reference)
-				SELECT DISTINCT
-					entity_type, entity_reference
-				FROM
-					temp_datapoints
-				ON CONFLICT (type, reference)
-				-- "Truque": fazemos um update que não altera nada (Ñ gera escrita), apenas para ter acesso aos dados
-				DO UPDATE SET
-					type = excluded.type -- Atualização inócua, pois o tipo já é o mesmo.
-				RETURNING
-					id, reference
+				SELECT DISTINCT 
+					td.entity_type, 
+					td.entity_reference
+				FROM 
+					temp_datapoints td
+				WHERE NOT EXISTS (
+					SELECT 1 FROM entities e
+					WHERE e.type = td.entity_type AND e.reference = td.entity_reference
+				)
+				RETURNING id, reference
+			),
+			entity_ids AS (
+				SELECT id, reference FROM existing_entities
+				UNION ALL
+				SELECT id, reference FROM new_entities
 			),
 			-- CTE 2: Prepara os dados temporais com os IDs internos
 			temporal_data_to_upsert AS (
@@ -138,11 +155,14 @@ func (r *TemporalWriteRepository) UpsertDataPoints(ctx context.Context, syncTemp
 					idempotency_key
 				FROM
 					temporal_data_to_upsert
-				ON CONFLICT ON CONSTRAINT 
+				ON CONFLICT ON CONSTRAINT
 					tp_uniq_idempotency_key_reference_month
 				DO UPDATE SET
 					value = excluded.value,
+					reference_date = excluded.reference_date,
 					updated_at = NOW()
+				WHERE 
+					temporal_properties.value IS DISTINCT FROM excluded.value
 			)
 			
 			SELECT DISTINCT id FROM entity_ids;
