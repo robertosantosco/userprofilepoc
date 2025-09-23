@@ -98,6 +98,7 @@ Uma **API User Profile centralizada** que:
 ### **Visão Geral da Arquitetura**
 
 ```mermaid
+%%{init: {"theme":"default","themeVariables":{"background":"#ffffff"}}}%%
 flowchart LR
 
     subgraph STONE["🏢 Stone Domain Services"]
