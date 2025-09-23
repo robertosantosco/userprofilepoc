@@ -27,6 +27,3 @@ run-datagen-entity-properties:
 
 run-datagen-temporal-data:
 	go run -tags datagen_temporal datagen_kafka_temporal_data.go --count=-1 --batch-size=1000 --topic=flink.agg.user-profile.entities.temporal-properties --brokers=localhost:9092 --group-id=userprofile-temporal-data --delay-ms=100 --entities=100 --days-back=30 --granularities=day,month
-
-run-domain-events-example:
-	go run -tags example examples/domain_event_consumer_example.go --brokers=localhost:9092 --topic=user-profile.domain-events.v1 --group-id=example-consumer
