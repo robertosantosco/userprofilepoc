@@ -59,6 +59,12 @@ type TemporalItemDTO struct {
 // 	return json.Marshal(tempMap)
 // }
 
+type BatchGraphRequest struct {
+	EntityIDs  []int64 `json:"entity_ids" binding:"required"`
+	DepthLimit *int    `json:"depth_limit,omitempty"`
+	StartTime  *string `json:"start_time,omitempty"`
+}
+
 func MapDomainToResponse(node *domain.NodeTree) *NodeTreeDTO {
 	if node == nil {
 		return nil

@@ -23,7 +23,7 @@ func NewGraphQueryRepository(readPool *pgxpool.Pool) *GraphQueryRepository {
 
 type FindCondition struct {
 	Field    string      // O nome da coluna no banco (ex: "id", "properties").
-	Operator string      // O operador a ser usado (ex: "=", "@>").
+	Operator string      // O operador a ser usado (ex: "=", "@>", "IN").
 	Value    interface{} // O valor a ser usado como argumento na query.
 }
 
@@ -35,28 +35,28 @@ func (gqr *GraphQueryRepository) QueryTree(
 ) ([]domain.GraphNode, []entities.TemporalProperty, error) {
 	baseGraphNodeQuery := `
 		WITH RECURSIVE entity_graph (entity_id, parent_id, relationship_type, depth) AS (
-			SELECT 
-				id, 
-				NULL::BIGINT, 
-				NULL::TEXT, 
-				0 
-			FROM 
-				entities 
-			WHERE 
-				%s %s $1
-			
+			SELECT
+				id,
+				NULL::BIGINT,
+				NULL::TEXT,
+				0
+			FROM
+				entities
+			WHERE
+				%s %s %s $1 %s
+
 			UNION ALL
-			
-			SELECT 
-				e.right_entity_id, 
-				e.left_entity_id, 
-				e.relationship_type, 
+
+			SELECT
+				e.right_entity_id,
+				e.left_entity_id,
+				e.relationship_type,
 				eg.depth + 1
-			FROM 
-				edges e 
-			JOIN 
+			FROM
+				edges e
+			JOIN
 				entity_graph eg ON e.left_entity_id = eg.entity_id
-			WHERE 
+			WHERE
 				eg.depth < $2
 		),
 		entities_relation AS (
@@ -65,26 +65,30 @@ func (gqr *GraphQueryRepository) QueryTree(
 				JSONB_AGG(
 					DISTINCT jsonb_build_object('parent_id', parent_id, 'type', relationship_type)
 				) FILTER (WHERE parent_id IS NOT NULL) AS parents_info
-			FROM 
+			FROM
 				entity_graph
-			GROUP 
+			GROUP
 				BY entity_id
 		)
-		SELECT 
-			e.id, 
-			e.type, 
-			e.reference, 
-			e.properties, 
-			e.created_at, 
-			e.updated_at, 
+		SELECT
+			e.id,
+			e.type,
+			e.reference,
+			e.properties,
+			e.created_at,
+			e.updated_at,
 			er.parents_info
-		FROM 
-			entities e 
-		JOIN 
+		FROM
+			entities e
+		JOIN
 			entities_relation er ON e.id = er.entity_id;
 	`
 	queryValue := condition.Value
 	queryField := condition.Field
+	queryOperator := condition.Operator
+	leftParen := ""
+	rightParen := ""
+
 	if condition.Operator == "@>" {
 		valueJson, err := postgres.BuildSearchJSON(condition.Field, condition.Value)
 		if err != nil {
@@ -93,9 +97,13 @@ func (gqr *GraphQueryRepository) QueryTree(
 
 		queryField = "properties"
 		queryValue = valueJson
+	} else if condition.Operator == "IN" {
+		queryOperator = "= ANY"
+		leftParen = "("
+		rightParen = ")"
 	}
 
-	graphNodeQuery := fmt.Sprintf(baseGraphNodeQuery, queryField, condition.Operator)
+	graphNodeQuery := fmt.Sprintf(baseGraphNodeQuery, queryField, queryOperator, leftParen, rightParen)
 
 	grapthRows, err := gqr.readPool.Query(ctx, graphNodeQuery, queryValue, depthLimit)
 	if err != nil {

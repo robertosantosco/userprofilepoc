@@ -1425,25 +1425,110 @@ curl "http://localhost:8888/v1/graph/123?period=2025-01-01T00:00:00Z&depth=5"
 }
 ```
 
-#### **GET /v1/graph/by-property/{prop}/value/{value}**
-Busca entidade por propriedade JSON.
-
-**Query Parameters:**
-- `period` (opcional): Data a partir da qual capturar dados temporais (formato: `2025-01-01T00:00:00Z`)
-- `depth` (opcional): Profundidade máxima da árvore de relacionamentos (padrão: `3`, máximo: `10`)
+#### **GET /v1/graph/by-property/{prop}/value/{val}**
+Busca múltiplas entidades por propriedade.
 
 ```bash
-# Busca básica por email
-curl http://localhost:8888/v1/graph/by-property/email/value/joao@email.com
+# Busca todas as organizações com status "active"
+curl "http://localhost:8888/v1/graph/by-property/status/value/active?depthLimit=3&startTime=2024-01-01"
+```
 
-# Com filtro temporal
-curl "http://localhost:8888/v1/graph/by-property/email/value/joao@email.com?period=2025-01-01T00:00:00Z"
+**Response:**
+```json
+[
+  {
+    "id": 13,
+    "type": "organization",
+    "reference": "acc-12d2c3354786bf56",
+    "properties": {
+      "status": "active",
+      "trade_name": "Stone Pagamentos",
+      "document": "16501555000157"
+    },
+    "edges": [...]
+  },
+  {
+    "id": 25,
+    "type": "organization",
+    "reference": "acc-98f7d6e5c4b3a291",
+    "properties": {
+      "status": "active",
+      "trade_name": "Tech Corp LTDA",
+      "document": "23456789000123"
+    },
+    "edges": [...]
+  }
+]
+```
 
-# Com profundidade limitada
-curl "http://localhost:8888/v1/graph/by-property/department/value/Finance?depth=2"
+#### **POST /v1/graph/batch**
+Busca múltiplas entidades por lista de IDs.
 
-# Combinando parâmetros
-curl "http://localhost:8888/v1/graph/by-property/status/value/active?period=2025-01-01T00:00:00Z&depth=5"
+```bash
+curl -X POST "http://localhost:8888/v1/graph/batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entity_ids": [7, 13, 2],
+    "depth_limit": 3,
+    "start_time": "2024-01-01"
+  }'
+```
+
+**Response:**
+```json
+[
+  {
+    "id": 7,
+    "type": "user",
+    "reference": "user-1d98ac68-00fa-4439-b5ec-43bfb0f3e4b8",
+    "properties": {
+      "email": "batataa@example.com",
+      "full_name": "Oliver Sá",
+      "document": {
+        "type": "cpf",
+        "value": "58170237092"
+      }
+    },
+    "edges": [
+      {
+        "type": "member_of",
+        "entity": {
+          "id": 13,
+          "type": "organization",
+          "reference": "acc-12d2c3354786bf56",
+          "properties": {
+            "trade_name": "Cardoso Peixoto - ME"
+          },
+          "edges": [...]
+        }
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "type": "organization",
+    "reference": "acc-12d2c3354786bf56",
+    "properties": {
+      "trade_name": "Cardoso Peixoto - ME",
+      "document": "15841652976360",
+      "account_status": {
+        "overall_status": "inactive"
+      }
+    },
+    "edges": [...]
+  },
+  {
+    "id": 2,
+    "type": "affiliation",
+    "reference": "aff-610d5848-61ce-49aa-a353-ac97dd026f6d",
+    "properties": {
+      "status": "inactive",
+      "identifier": "sub_stone_psp",
+      "monthly_volume": 38952636
+    },
+    "edges": [...]
+  }
+]
 ```
 
 #### **POST /v1/graph/sync**

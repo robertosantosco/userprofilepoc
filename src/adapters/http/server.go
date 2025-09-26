@@ -46,7 +46,8 @@ func NewServer(
 
 	// Rotas de Leitura
 	server.mux.HandleFunc("GET /v1/graph/{id}", server.GetGraphByID)
-	server.mux.HandleFunc("GET /v1/graph/by-property/{prop}/value/{value}", server.GetGraphByProperty)
+	server.mux.HandleFunc("GET /v1/graph/by-property/{prop}/value/{value}", server.GetGraphsByProperty)
+	server.mux.HandleFunc("POST /v1/graph/batch", server.GetGraphsByEntityIDs)
 
 	// Rotas de Escritas
 	server.mux.HandleFunc("POST /v1/graph/sync", server.SyncGraph)
