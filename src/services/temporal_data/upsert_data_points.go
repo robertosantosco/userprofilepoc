@@ -1,19 +1,10 @@
-package services
+package temporal_data
 
 import (
 	"context"
 	"fmt"
 	"userprofilepoc/src/domain"
-	"userprofilepoc/src/repositories"
 )
-
-type TemporalDataService struct {
-	temporalWriteRepository *repositories.TemporalWriteRepository
-}
-
-func NewTemporalDataService(temporalWriteRepository *repositories.TemporalWriteRepository) *TemporalDataService {
-	return &TemporalDataService{temporalWriteRepository: temporalWriteRepository}
-}
 
 func (s *TemporalDataService) UpsertDataPoints(ctx context.Context, request domain.SyncTemporalPropertyRequest) error {
 	if len(request.DataPoints) == 0 {

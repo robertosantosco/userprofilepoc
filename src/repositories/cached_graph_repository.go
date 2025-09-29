@@ -90,6 +90,10 @@ func (r *CachedGraphRepository) generateCacheKey(
 }
 
 func (r *CachedGraphRepository) getFromCache(ctx context.Context, cacheKey string) (*CacheableResult, bool, error) {
+	// Skip cache if Redis client is nil (testing mode)
+	if r.redisClient == nil {
+		return nil, false, nil
+	}
 
 	cachedJSON, found, err := r.redisClient.GetKey(ctx, cacheKey)
 	if !found || err != nil {
@@ -110,6 +114,11 @@ func (r *CachedGraphRepository) setInCache(
 	graphNodes []domain.GraphNode,
 	temporalProps []entities.TemporalProperty,
 ) {
+	// Skip cache if Redis client is nil (testing mode)
+	if r.redisClient == nil {
+		return
+	}
+
 	cacheData := CacheableResult{
 		GraphNodes:    graphNodes,
 		TemporalProps: temporalProps,

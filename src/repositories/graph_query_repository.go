@@ -33,6 +33,8 @@ func (gqr *GraphQueryRepository) QueryTree(
 	depthLimit int,
 	referenceMonth time.Time,
 ) ([]domain.GraphNode, []entities.TemporalProperty, error) {
+	referenceMonth = referenceMonth.Truncate(24*time.Hour).AddDate(0, 0, -referenceMonth.Day()+1)
+
 	baseGraphNodeQuery := `
 		WITH RECURSIVE entity_graph (entity_id, parent_id, relationship_type, depth) AS (
 			SELECT

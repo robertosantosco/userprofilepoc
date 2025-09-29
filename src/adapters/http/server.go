@@ -6,7 +6,8 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	"userprofilepoc/src/services"
+	"userprofilepoc/src/services/graph"
+	"userprofilepoc/src/services/temporal_data"
 
 	"time"
 )
@@ -17,16 +18,16 @@ type Server struct {
 	server              *http.Server
 	mux                 *http.ServeMux
 	port                int
-	graphService        *services.GraphService
-	temporalDataService *services.TemporalDataService
+	graphService        *graph.GraphService
+	temporalDataService *temporal_data.TemporalDataService
 }
 
 // NewServer cria uma nova instância do servidor
 func NewServer(
 	logger *slog.Logger,
 	port int,
-	graphService *services.GraphService,
-	temporalDataService *services.TemporalDataService,
+	graphService *graph.GraphService,
+	temporalDataService *temporal_data.TemporalDataService,
 ) *Server {
 	server := &Server{
 		mux:                 http.NewServeMux(),

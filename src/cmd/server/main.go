@@ -12,7 +12,8 @@ import (
 	"userprofilepoc/src/infra/postgres"
 	"userprofilepoc/src/infra/redis"
 	"userprofilepoc/src/repositories"
-	"userprofilepoc/src/services"
+	"userprofilepoc/src/services/graph"
+	"userprofilepoc/src/services/temporal_data"
 
 	"go.uber.org/fx"
 )
@@ -115,8 +116,8 @@ func newGraphWriteRepository(
 func newEntitiesService(
 	cachedGraphRepository *repositories.CachedGraphRepository,
 	graphWriteRepository *repositories.GraphWriteRepository,
-) *services.GraphService {
-	return services.NewGraphService(cachedGraphRepository, graphWriteRepository)
+) *graph.GraphService {
+	return graph.NewGraphService(cachedGraphRepository, graphWriteRepository)
 }
 
 func newTemporalWriteRepository(
@@ -126,14 +127,14 @@ func newTemporalWriteRepository(
 	return repositories.NewTemporalWriteRepository(readWriteClient.GetWritePool(), cachedGraphRepository)
 }
 
-func newTemporalDataService(temporalWriteRepository *repositories.TemporalWriteRepository) *services.TemporalDataService {
-	return services.NewTemporalDataService(temporalWriteRepository)
+func newTemporalDataService(temporalWriteRepository *repositories.TemporalWriteRepository) *temporal_data.TemporalDataService {
+	return temporal_data.NewTemporalDataService(temporalWriteRepository)
 }
 
 func newServer(
 	logger *slog.Logger,
-	graphService *services.GraphService,
-	temporalDataService *services.TemporalDataService,
+	graphService *graph.GraphService,
+	temporalDataService *temporal_data.TemporalDataService,
 ) *http.Server {
 
 	port := 8888 // default value

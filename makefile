@@ -1,6 +1,12 @@
 include .env
 export $(shell sed 's/=.*//' .env)
 
+GINKGO_VERSION=v2.25.1
+GINKGO_CMD=go run github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
+
+test:
+	$(GINKGO_CMD) --randomize-all --randomize-suites --fail-on-pending -v ./src/...
+
 run-server:
 	go run ./src/cmd/server/main.go
 
@@ -27,3 +33,9 @@ run-datagen-entity-properties:
 
 run-datagen-temporal-data:
 	go run -tags datagen_temporal datagen_kafka_temporal_data.go --count=-1 --batch-size=1000 --topic=flink.agg.user-profile.entities.temporal-properties --brokers=localhost:9092 --group-id=userprofile-temporal-data --delay-ms=100 --entities=100 --days-back=30 --granularities=day,month
+
+setup:
+	go get -u github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
+	go get -u github.com/onsi/gomega
+	go get -u github.com/brianvoe/gofakeit/v6
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
