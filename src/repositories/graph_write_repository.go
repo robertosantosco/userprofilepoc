@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"userprofilepoc/src/domain"
@@ -20,10 +21,32 @@ func NewGraphWriteRepository(writePool *pgxpool.Pool, cachedGraphRepository *Cac
 }
 
 func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.SyncGraphRequest) error {
-	// Preparar os dados para a tabela temporária unificada.
-	rows := make([][]interface{}, 0, len(request.Entities)+len(request.Relationships))
-
+	// Merge duplicate entities in the same request by combining their properties
+	entityMap := make(map[string]domain.SyncEntityDTO)
 	for _, entity := range request.Entities {
+		key := entity.Type + ":" + entity.Reference
+		if existing, found := entityMap[key]; found {
+			mergedProps := r.mergeJSONProperties(existing.Properties, entity.Properties)
+			entityMap[key] = domain.SyncEntityDTO{
+				Type:       entity.Type,
+				Reference:  entity.Reference,
+				Properties: mergedProps,
+			}
+		} else {
+			entityMap[key] = entity
+		}
+	}
+
+	// Convert map back to slice
+	mergedEntities := make([]domain.SyncEntityDTO, 0, len(entityMap))
+	for _, entity := range entityMap {
+		mergedEntities = append(mergedEntities, entity)
+	}
+
+	// Preparar os dados para a tabela temporária unificada.
+	rows := make([][]interface{}, 0, len(mergedEntities)+len(request.Relationships))
+
+	for _, entity := range mergedEntities {
 		rows = append(rows, []interface{}{entity.Type, entity.Reference, entity.Properties, nil, nil, nil})
 	}
 
@@ -152,4 +175,39 @@ func (r *GraphWriteRepository) SyncGraph(ctx context.Context, request domain.Syn
 	}()
 
 	return tx.Commit(ctx)
+}
+
+// mergeJSONProperties merges two json.RawMessage objects, with properties from 'newer' overriding those in 'older'
+func (r *GraphWriteRepository) mergeJSONProperties(older, newer json.RawMessage) json.RawMessage {
+	if len(older) == 0 && len(newer) == 0 {
+		return nil
+	}
+	if len(older) == 0 {
+		return newer
+	}
+	if len(newer) == 0 {
+		return older
+	}
+
+	var olderMap, newerMap map[string]interface{}
+
+	if err := json.Unmarshal(older, &olderMap); err != nil {
+		return newer // If older is invalid, just use newer
+	}
+
+	if err := json.Unmarshal(newer, &newerMap); err != nil {
+		return older // If newer is invalid, keep older
+	}
+
+	// Merge: newer properties override older ones
+	for key, value := range newerMap {
+		olderMap[key] = value
+	}
+
+	merged, err := json.Marshal(olderMap)
+	if err != nil {
+		return newer // Fallback to newer if marshal fails
+	}
+
+	return json.RawMessage(merged)
 }

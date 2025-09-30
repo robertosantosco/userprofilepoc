@@ -8,7 +8,7 @@ test:
 	$(GINKGO_CMD) --randomize-all --randomize-suites --fail-on-pending -v ./src/...
 
 run-server:
-	go run ./src/cmd/server/main.go
+	go run ./src/cmd/server/main.go --focus="SyncGraph"
 
 run-entities-edges-consumer:
 	go run ./src/cmd/entities-edges-consumer/main.go

@@ -5,32 +5,45 @@ import (
 	"userprofilepoc/src/domain/entities"
 )
 
-// SelectEntityByID retrieves an entity by its ID for verification
-func (ts TestSeeder) SelectEntityByID(ctx context.Context, id int64) (entities.Entity, error) {
+func (ts TestSeeder) SelectEntitiesByReferences(ctx context.Context, references []string) ([]entities.Entity, error) {
 	query := `SELECT id, type, reference, properties, created_at, updated_at
-              FROM entities WHERE id = $1`
+			  FROM entities WHERE reference = ANY($1)`
 
-	var entity entities.Entity
-	err := ts.pool.QueryRow(ctx, query, id).Scan(
-		&entity.ID,
-		&entity.Type,
-		&entity.Reference,
-		&entity.Properties,
-		&entity.CreatedAt,
-		&entity.UpdatedAt,
-	)
+	rows, err := ts.pool.Query(ctx, query, references)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-	return entity, err
+	var entitiesList []entities.Entity
+	for rows.Next() {
+		var entity entities.Entity
+		err := rows.Scan(
+			&entity.ID,
+			&entity.Type,
+			&entity.Reference,
+			&entity.Properties,
+			&entity.CreatedAt,
+			&entity.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		entitiesList = append(entitiesList, entity)
+	}
+
+	return entitiesList, rows.Err()
 }
 
 // SelectEdgesByEntityID retrieves all edges where the entity is involved
-func (ts TestSeeder) SelectEdgesByEntityID(ctx context.Context, entityID int64) ([]entities.Edge, error) {
-	query := `SELECT id, left_entity_id, right_entity_id, relationship_type, metadata, created_at, updated_at
-              FROM edges
-              WHERE left_entity_id = $1 OR right_entity_id = $1
-              ORDER BY id`
+func (ts TestSeeder) SelectEdgesByEntityReferences(ctx context.Context, entityReferences []string) ([]entities.Edge, error) {
+	query := `SELECT DISTINCT e.id, e.left_entity_id, e.right_entity_id, e.relationship_type, e.metadata, e.created_at, e.updated_at
+			  FROM edges e
+			  JOIN entities ent ON e.left_entity_id = ent.id OR e.right_entity_id = ent.id
+			  WHERE ent.reference = ANY($1)
+			  ORDER BY e.id`
 
-	rows, err := ts.pool.Query(ctx, query, entityID)
+	rows, err := ts.pool.Query(ctx, query, entityReferences)
 	if err != nil {
 		return nil, err
 	}
@@ -57,37 +70,38 @@ func (ts TestSeeder) SelectEdgesByEntityID(ctx context.Context, entityID int64) 
 	return edges, rows.Err()
 }
 
-// SelectTemporalPropertiesByEntityID retrieves all temporal properties for an entity
-func (ts TestSeeder) SelectTemporalPropertiesByEntityID(ctx context.Context, entityID int64) ([]entities.TemporalProperty, error) {
-	query := `SELECT entity_id, key, value, idempotency_key, granularity, reference_date, created_at, updated_at
-              FROM temporal_properties
-              WHERE entity_id = $1
-              ORDER BY reference_date DESC`
+// SelectTemporalPropertiesByEntityReferences retrieves distinct temporal properties for entities based on their references
+func (ts TestSeeder) SelectTemporalPropertiesByEntityReferences(ctx context.Context, entityReferences []string) ([]entities.TemporalProperty, error) {
+	query := `SELECT DISTINCT td.entity_id, td.key, td.value, td.idempotency_key, td.granularity, td.reference_date, td.created_at, td.updated_at
+			  FROM temporal_properties td
+			  JOIN entities ent ON td.entity_id = ent.id
+			  WHERE ent.reference = ANY($1)
+			  ORDER BY td.entity_id`
 
-	rows, err := ts.pool.Query(ctx, query, entityID)
+	rows, err := ts.pool.Query(ctx, query, entityReferences)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var properties []entities.TemporalProperty
+	var temporalProperties []entities.TemporalProperty
 	for rows.Next() {
-		var property entities.TemporalProperty
+		var temporalProperty entities.TemporalProperty
 		err := rows.Scan(
-			&property.EntityID,
-			&property.Key,
-			&property.Value,
-			&property.IdempotencyKey,
-			&property.Granularity,
-			&property.ReferenceDate,
-			&property.CreatedAt,
-			&property.UpdatedAt,
+			&temporalProperty.EntityID,
+			&temporalProperty.Key,
+			&temporalProperty.Value,
+			&temporalProperty.IdempotencyKey,
+			&temporalProperty.Granularity,
+			&temporalProperty.ReferenceDate,
+			&temporalProperty.CreatedAt,
+			&temporalProperty.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
 		}
-		properties = append(properties, property)
+		temporalProperties = append(temporalProperties, temporalProperty)
 	}
 
-	return properties, rows.Err()
+	return temporalProperties, rows.Err()
 }

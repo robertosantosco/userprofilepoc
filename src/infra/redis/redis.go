@@ -13,6 +13,7 @@ import (
 type RedisClient struct {
 	client            *redis.ClusterClient
 	defaultTTLSeconds time.Duration
+	keyPrefix         string
 }
 
 func NewRedisClient(addrs string, poolSize int, defaultTTLSeconds time.Duration) *RedisClient {
@@ -40,10 +41,30 @@ func NewRedisClient(addrs string, poolSize int, defaultTTLSeconds time.Duration)
 	return &RedisClient{
 		client:            client,
 		defaultTTLSeconds: defaultTTLSeconds,
+		keyPrefix:         "",
 	}
 }
 
+// WithPrefix retorna uma nova instância do RedisClient com prefixo nas chaves
+// Útil para isolar ambientes de teste
+func (rc *RedisClient) WithPrefix(prefix string) *RedisClient {
+	return &RedisClient{
+		client:            rc.client,
+		defaultTTLSeconds: rc.defaultTTLSeconds,
+		keyPrefix:         prefix,
+	}
+}
+
+// prefixKey adiciona o prefixo à chave se configurado
+func (rc *RedisClient) prefixKey(key string) string {
+	if rc.keyPrefix == "" {
+		return key
+	}
+	return rc.keyPrefix + key
+}
+
 func (rc *RedisClient) SetKey(ctx context.Context, key string, value string) error {
+	key = rc.prefixKey(key)
 	fields := map[string]interface{}{
 		"data":      value,
 		"cached_at": time.Now().Unix(),
@@ -61,8 +82,9 @@ func (rc *RedisClient) SetMultiple(ctx context.Context, keyValues map[string]str
 	pipe := rc.client.Pipeline()
 
 	for key, value := range keyValues {
-		pipe.HSet(ctx, key, value)
-		pipe.Expire(ctx, key, rc.defaultTTLSeconds)
+		prefixedKey := rc.prefixKey(key)
+		pipe.HSet(ctx, prefixedKey, value)
+		pipe.Expire(ctx, prefixedKey, rc.defaultTTLSeconds)
 	}
 
 	_, err := pipe.Exec(ctx)
@@ -73,6 +95,7 @@ func (rc *RedisClient) SetWithRegistry(ctx context.Context, cacheKey string, cac
 	pipe := rc.client.Pipeline()
 
 	// 1. Set do cache principal
+	cacheKey = rc.prefixKey(cacheKey)
 	fields := map[string]interface{}{
 		"data":      cacheValue,
 		"cached_at": time.Now().Unix(),
@@ -81,8 +104,9 @@ func (rc *RedisClient) SetWithRegistry(ctx context.Context, cacheKey string, cac
 	pipe.Expire(ctx, cacheKey, rc.defaultTTLSeconds)
 
 	for _, registryKey := range registryKeys {
-		pipe.SAdd(ctx, registryKey, cacheKey)
-		pipe.Expire(ctx, registryKey, rc.defaultTTLSeconds)
+		prefixedRegistryKey := rc.prefixKey(registryKey)
+		pipe.SAdd(ctx, prefixedRegistryKey, cacheKey)
+		pipe.Expire(ctx, prefixedRegistryKey, rc.defaultTTLSeconds)
 	}
 
 	_, err := pipe.Exec(ctx)
@@ -90,6 +114,7 @@ func (rc *RedisClient) SetWithRegistry(ctx context.Context, cacheKey string, cac
 }
 
 func (rc *RedisClient) GetKey(ctx context.Context, key string) (string, bool, error) {
+	key = rc.prefixKey(key)
 	result := rc.client.HGet(ctx, key, "data")
 
 	// Cache miss
@@ -113,7 +138,8 @@ func (rc *RedisClient) GetMultipleSetMembers(ctx context.Context, keys []string)
 	// Adicionar todos os SMEMBERS ao pipeline
 	cmds := make(map[string]*redis.StringSliceCmd)
 	for _, key := range keys {
-		cmds[key] = pipe.SMembers(ctx, key)
+		prefixedKey := rc.prefixKey(key)
+		cmds[key] = pipe.SMembers(ctx, prefixedKey)
 	}
 
 	// Executar pipeline de uma vez
@@ -144,7 +170,8 @@ func (rc *RedisClient) InvalidateEntity(ctx context.Context, keys []string) erro
 	var errors []string
 
 	for _, key := range keys {
-		if err := rc.client.Del(ctx, key).Err(); err != nil {
+		prefixedKey := rc.prefixKey(key)
+		if err := rc.client.Del(ctx, prefixedKey).Err(); err != nil {
 			errors = append(errors, fmt.Sprintf("key %s: %v", key, err))
 		}
 	}
@@ -153,6 +180,40 @@ func (rc *RedisClient) InvalidateEntity(ctx context.Context, keys []string) erro
 		return fmt.Errorf("invalidation errors: %s", strings.Join(errors, "; "))
 	}
 
+	return nil
+}
+
+// FlushByPrefix deleta todas as chaves que começam com o prefixo configurado
+// ATENÇÃO: Use apenas em ambientes de teste
+func (rc *RedisClient) FlushByPrefix(ctx context.Context) error {
+	if rc.keyPrefix == "" {
+		return fmt.Errorf("cannot flush without prefix - safety check")
+	}
+
+	pattern := rc.keyPrefix + "*"
+	var cursor uint64
+	var deletedCount int
+
+	for {
+		keys, nextCursor, err := rc.client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return fmt.Errorf("failed to scan keys: %w", err)
+		}
+
+		if len(keys) > 0 {
+			if err := rc.client.Del(ctx, keys...).Err(); err != nil {
+				return fmt.Errorf("failed to delete keys: %w", err)
+			}
+			deletedCount += len(keys)
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	log.Printf("Flushed %d keys with prefix '%s'", deletedCount, rc.keyPrefix)
 	return nil
 }
 
